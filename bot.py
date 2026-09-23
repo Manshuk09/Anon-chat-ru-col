@@ -8,7 +8,6 @@ from aiogram.types import ReplyKeyboardMarkup, KeyboardButton, InlineKeyboardMar
 # ================= НАСТРОЙКИ =================
 TOKEN = "8861156320:AAEd_G2uA0GfNEifOzawEnLAFFFTov-1FHA"  # Твой токен бота
 ADMIN_ID = 6681923689                                   # Твой Telegram ID
-PREMIUM_PRICE_STARS = 100                               # Стоимость премиума в Telegram Stars
 # ============================================
 
 logging.basicConfig(level=logging.INFO)
@@ -16,10 +15,10 @@ bot = Bot(token=TOKEN)
 dp = Dispatcher()
 
 # Хранилища
-search_queue = []          # Обычная очередь
-premium_queue = []         # Премиум-очередь (идет первой)
-active_chats = {}          # Активные диалоги: {user_id: partner_id}
-user_profiles = {}         # База анкет: {user_id: {"gender": ..., "target": ..., "age": ..., "interests": ..., "bio": ..., "is_premium": bool}}
+search_queue = []          
+premium_queue = []         
+active_chats = {}          
+user_profiles = {}         
 
 # Состояния (FSM)
 class States(StatesGroup):
@@ -76,7 +75,7 @@ async def cmd_start(message: types.Message, state: FSMContext):
 async def channel_link(message: types.Message):
     await message.answer("📢 Наш официальный канал: https://t.me/anonimnyichat_ru_bot", reply_markup=get_main_menu())
 
-# 3. Кнопка "💎 PREMIUM" (покупка за Звезды)
+# 3. Кнопка "💎 PREMIUM" с прайс-листом (на час, день, неделю, месяц, год, навсегда)
 @dp.message(F.text == "💎 PREMIUM")
 async def premium_info(message: types.Message):
     user_id = message.from_user.id
@@ -86,7 +85,12 @@ async def premium_info(message: types.Message):
 
     markup = InlineKeyboardMarkup(
         inline_keyboard=[
-            [InlineKeyboardButton(text=f"⭐ Купить за {PREMIUM_PRICE_STARS} Звезд", callback_data="buy_prem_stars")]
+            [InlineKeyboardButton(text="⏳ На 1 час — 15 Звезд", callback_data="buy_hour")],
+            [InlineKeyboardButton(text="📅 На 1 день — 30 Звезд", callback_data="buy_day")],
+            [InlineKeyboardButton(text="📆 На 1 неделю — 70 Звезд", callback_data="buy_week")],
+            [InlineKeyboardButton(text="🗓 На 1 месяц — 150 Звезд", callback_data="buy_month")],
+            [InlineKeyboardButton(text="🌟 На 1 год — 500 Звезд", callback_data="buy_year")],
+            [InlineKeyboardButton(text="♾ Навсегда — 1000 Звезд", callback_data="buy_forever")]
         ]
     )
 
@@ -97,19 +101,31 @@ async def premium_info(message: types.Message):
         "• 🚀 **Приоритетный поиск** (тебя соединяют первыми)\n"
         "• 🎯 **Фильтр по полу** (выбор, кого именно искать при поиске)\n"
         "• ✨ **Уникальный значок** в профиле\n\n"
-        "⭐️ *Нажми кнопку ниже, чтобы приобрести Премиум за Telegram Stars:*",
-        reply_markup=markup
+        "⭐️ *Выбери подходящий тариф ниже:*",
+        reply_markup=markup,
+        parse_mode="Markdown"
     )
 
-@dp.callback_query(F.data == "buy_prem_stars")
-async def process_buy_stars(callback: types.CallbackQuery):
-    prices = [LabeledPrice(label="💎 Telegram Premium", amount=PREMIUM_PRICE_STARS)]
+# Обработка выбора тарифов через Telegram Stars
+@dp.callback_query(F.data.startswith("buy_"))
+async def process_buy_tariff(callback: types.CallbackQuery):
+    tariffs = {
+        "buy_hour": ("Премиум на 1 час", 15),
+        "buy_day": ("Премиум на 1 день", 30),
+        "buy_week": ("Премиум на 1 неделю", 70),
+        "buy_month": ("Премиум на 1 месяц", 150),
+        "buy_year": ("Премиум на 1 год", 500),
+        "buy_forever": ("Премиум навсегда", 1000)
+    }
+    
+    title_text, price_stars = tariffs.get(callback.data, ("Премиум", 100))
+    prices = [LabeledPrice(label=title_text, amount=price_stars)]
     
     await bot.send_invoice(
         chat_id=callback.from_user.id,
-        title="💎 Премиум-статус в боте",
+        title=f"💎 {title_text}",
         description="Покупка Premium-статуса: приоритетный поиск, фильтр по полу и значок в профиле.",
-        payload="premium_stars_purchase",
+        payload=f"premium_{callback.data}",
         currency="XTR",
         prices=prices
     )
@@ -129,7 +145,8 @@ async def successful_payment(message: types.Message):
         
     await message.answer(
         "🎉 **Успешная оплата!**\nТебе автоматически активирован **PREMIUM-статус** ✨",
-        reply_markup=get_main_menu()
+        reply_markup=get_main_menu(),
+        parse_mode="Markdown"
     )
 
 # Команда бесплатной выдачи премиума: /prem ID
@@ -181,7 +198,6 @@ async def cancel_profile(message: types.Message, state: FSMContext):
     await state.clear()
     await message.answer("❌ Действие отменено.", reply_markup=get_main_menu())
 
-# Шаг 1: Пол выбирают ВСЕ
 @dp.message(States.profile_gender, F.text.in_(["👤 Парень", "👧 Девушка"]))
 async def profile_gender_chosen(message: types.Message, state: FSMContext):
     await state.update_data(gender=message.text)
@@ -204,24 +220,22 @@ async def profile_gender_chosen(message: types.Message, state: FSMContext):
         await state.set_state(States.profile_age)
         await message.answer("📝 Шаг 2/4: Сколько тебе лет? (напиши цифрой)", reply_markup=ReplyKeyboardMarkup(keyboard=[[KeyboardButton(text="❌ Отмена")]], resize_keyboard=True))
 
-# Шаг 2 (только для премиума): Выбор кого искать
 @dp.message(States.profile_target, F.text.in_(["🔎 Парня", "🔎 Девушку", "🌍 Всех"]))
 async def profile_target_chosen(message: types.Message, state: FSMContext):
     await state.update_data(target=message.text)
     await state.set_state(States.profile_age)
     await message.answer("📝 Шаг 3/5: Сколько тебе лет? (напиши цифрой)", reply_markup=ReplyKeyboardMarkup(keyboard=[[KeyboardButton(text="❌ Отмена")]], resize_keyboard=True))
 
-# Шаг возраста
 @dp.message(States.profile_age)
 async def profile_age_chosen(message: types.Message, state: FSMContext):
     await state.update_data(age=message.text)
     await state.set_state(States.profile_interests)
     
-    # Кнопки с твоими интересами
+    # Твои интересы: рисование, сериалы, книга, аниме, спорт, танцы, музыка, программирование и т.д.
     markup = ReplyKeyboardMarkup(
         keyboard=[
-            [KeyboardButton(text="🎨 Рисование"), KeyboardButton(text="📖 Книги")],
-            [KeyboardButton(text="🎬 Сериалы"), KeyboardButton(text="🌸 Аниме")],
+            [KeyboardButton(text="🎨 Рисование"), KeyboardButton(text="🎬 Сериалы")],
+            [KeyboardButton(text="📖 Книги"), KeyboardButton(text="🌸 Аниме")],
             [KeyboardButton(text="⚽ Спорт"), KeyboardButton(text="💃 Танцы")],
             [KeyboardButton(text="🎵 Музыка"), KeyboardButton(text="💻 Программирование")],
             [KeyboardButton(text="❌ Отмена")]
@@ -233,8 +247,7 @@ async def profile_age_chosen(message: types.Message, state: FSMContext):
     step_num = "4/5" if is_prem else "3/4"
     await message.answer(f"📝 Шаг {step_num}: Выбери свой главный интерес:", reply_markup=markup)
 
-# Шаг интересов
-@dp.message(States.profile_interests, F.text.in_(["🎨 Рисование", "📖 Книги", "🎬 Сериалы", "🌸 Аниме", "⚽ Спорт", "💃 Танцы", "🎵 Музыка", "💻 Программирование"]))
+@dp.message(States.profile_interests, F.text.in_(["🎨 Рисование", "🎬 Сериалы", "📖 Книги", "🌸 Аниме", "⚽ Спорт", "💃 Танцы", "🎵 Музыка", "💻 Программирование"]))
 async def profile_interests_chosen(message: types.Message, state: FSMContext):
     await state.update_data(interests=message.text)
     await state.set_state(States.profile_bio)
@@ -244,12 +257,10 @@ async def profile_interests_chosen(message: types.Message, state: FSMContext):
     step_num = "5/5" if is_prem else "4/4"
     await message.answer(f"📝 Шаг {step_num}: Напиши пару слов о себе (описание):", reply_markup=ReplyKeyboardMarkup(keyboard=[[KeyboardButton(text="❌ Отмена")]], resize_keyboard=True))
 
-# Сохранение анкеты
 @dp.message(States.profile_bio)
 async def profile_bio_chosen(message: types.Message, state: FSMContext):
     data = await state.get_data()
     user_id = message.from_user.id
-    
     is_prem = user_profiles.get(user_id, {}).get("is_premium", False)
     
     user_profiles[user_id] = {
@@ -262,7 +273,6 @@ async def profile_bio_chosen(message: types.Message, state: FSMContext):
     }
     
     await state.clear()
-    
     target_info = f"\n🎯 Кого ищет: {data.get('target')}" if is_prem else ""
     
     await message.answer(
@@ -289,7 +299,8 @@ async def view_profile(message: types.Message):
             f"🎂 Возраст: {p['age']}\n"
             f"💡 Интерес: {p.get('interests', 'Не указан')}\n"
             f"📄 Описание: {p['bio']}",
-            reply_markup=get_main_menu()
+            reply_markup=get_main_menu(),
+            parse_mode="Markdown"
         )
     else:
         await message.answer(
@@ -305,7 +316,8 @@ async def support_start(message: types.Message, state: FSMContext):
     await message.answer(
         "💬 **Служба поддержки**\n\n"
         "Напиши свой вопрос или предложение одним сообщением, и администратор ответит тебе.",
-        reply_markup=ReplyKeyboardMarkup(keyboard=[[KeyboardButton(text="❌ Отмена")]], resize_keyboard=True)
+        reply_markup=ReplyKeyboardMarkup(keyboard=[[KeyboardButton(text="❌ Отмена")]], resize_keyboard=True),
+        parse_mode="Markdown"
     )
 
 @dp.message(F.text == "❌ Отмена", States.waiting_for_support)
@@ -326,7 +338,7 @@ async def support_send_to_admin(message: types.Message, state: FSMContext):
     )
 
     try:
-        await bot.send_message(ADMIN_ID, admin_text)
+        await bot.send_message(ADMIN_ID, admin_text, parse_mode="Markdown")
         await message.answer("✅ Твое сообщение успешно отправлено поддержке!", reply_markup=get_main_menu())
     except Exception:
         await message.answer("⚠️ Не удалось отправить сообщение.", reply_markup=get_main_menu())
@@ -342,7 +354,7 @@ async def admin_reply_to_user(message: types.Message):
                 for line in reply_text.split("\n"):
                     if "🆔 ID пользователя:" in line:
                         target_user_id = int(line.replace("🆔 ID пользователя:", "").replace("`", "").strip())
-                        await bot.send_message(target_user_id, f"💬 **Ответ от поддержки:**\n\n{message.text}")
+                        await bot.send_message(target_user_id, f"💬 **Ответ от поддержки:**\n\n{message.text}", parse_mode="Markdown")
                         await message.reply("✅ Ответ отправлен!")
                         return
             except Exception as e:
@@ -368,7 +380,6 @@ async def start_search(message: types.Message, state: FSMContext):
     user_data = user_profiles[user_id]
     is_prem = user_data.get("is_premium", False)
 
-    # 1. ОБЫЧНЫЙ ПОЛЬЗОВАТЕЛЬ — случайный поиск
     if not is_prem:
         search_queue.append(user_id)
         
@@ -389,7 +400,6 @@ async def start_search(message: types.Message, state: FSMContext):
         await message.answer("🔍 Ищем тебе случайного собеседника...", reply_markup=get_chat_menu())
         return
 
-    # 2. ПРЕМИУМ-ПОЛЬЗОВАТЕЛЬ — поиск с фильтром по полу + приоритет
     target = user_data.get("target", "🌍 Всех")
     my_gender = user_data.get("gender", "👤 Парень")
 
@@ -426,7 +436,7 @@ async def start_search(message: types.Message, state: FSMContext):
         await bot.send_message(partner_id, f"🎉 Собеседник найден!\nПол: {p1.get('gender')}, {p1.get('age')} лет\nИнтерес: {p1.get('interests')}\nОписание: {p1.get('bio')}", reply_markup=get_chat_menu())
     else:
         premium_queue.append(user_id)
-        await message.answer("💎 **[PREMIUM]** Поиск с фильтром по полу запущен...", reply_markup=get_chat_menu())
+        await message.answer("💎 **[PREMIUM]** Поиск с фильтром по полу запущен...", reply_markup=get_chat_menu(), parse_mode="Markdown")
 
 @dp.message(F.text == "🛑 Остановить диалог")
 async def stop_chat(message: types.Message):
@@ -454,7 +464,6 @@ async def stop_chat(message: types.Message):
     else:
         await message.answer("Ты не находишься в диалоге.", reply_markup=get_main_menu())
 
-# Пересылка сообщений между собеседниками
 @dp.message()
 async def forward_messages(message: types.Message, state: FSMContext):
     user_id = message.from_user.id
@@ -465,7 +474,6 @@ async def forward_messages(message: types.Message, state: FSMContext):
         except Exception:
             await message.answer("⚠️ Не удалось отправить сообщение собеседнику.")
 
-# Запуск бота
 async def main():
     print("Бот запущен и готов к работе!")
     await dp.start_polling(bot)
