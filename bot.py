@@ -7,7 +7,7 @@ from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton, ReplyKeyboardMarkup, KeyboardButton, LabeledPrice
 
-TOKEN = "8861156320:AAEd_G2uA0GfNEifOzawEnLAFFFTov-1FHA"
+TOKEN = "8861156320:AAGOPPoi7mE9zZLH2DL8xp26N1SLKUQONuM"
 ADMIN_ID = 6681923689  # Твой числовой Telegram ID
 
 logging.basicConfig(level=logging.INFO)
