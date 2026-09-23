@@ -46,6 +46,7 @@ def get_chat_menu():
         resize_keyboard=True
     )
 
+# 1. /start
 @dp.message(F.text == "/start")
 async def cmd_start(message: types.Message, state: FSMContext):
     await state.clear()
@@ -60,15 +61,17 @@ async def cmd_start(message: types.Message, state: FSMContext):
             pass
 
     await message.answer(
-        "👋 Привет! Добро пожаловать в анонимный чат.\n\n"
+        "👋 Привет! Добро пожаловать в анонимный чат (18+).\n\n"
         "Здесь ты можешь общаться с анонимными собеседниками, заводить новые знакомства и делиться мыслями.",
         reply_markup=get_main_menu()
     )
 
+# 2. Наш канал
 @dp.message(F.text == "📢 Наш канал")
 async def channel_link(message: types.Message):
     await message.answer("📢 Наш официальный канал: https://t.me/anonimnyichat_ru_bot", reply_markup=get_main_menu())
 
+# 3. PREMIUM меню
 @dp.message(F.text == "💎 PREMIUM")
 async def premium_info(message: types.Message):
     user_id = message.from_user.id
@@ -99,6 +102,7 @@ async def premium_info(message: types.Message):
         parse_mode="Markdown"
     )
 
+# Оплата через Telegram Stars
 @dp.callback_query(F.data.startswith("buy_"))
 async def process_buy_tariff(callback: types.CallbackQuery):
     tariffs = {
@@ -141,6 +145,7 @@ async def successful_payment(message: types.Message):
         parse_mode="Markdown"
     )
 
+# Админ-команда выдачи премиума
 @dp.message(F.text.startswith("/prem"))
 async def admin_give_premium(message: types.Message):
     if message.from_user.id != ADMIN_ID:
@@ -165,6 +170,8 @@ async def admin_give_premium(message: types.Message):
             pass
     except Exception as e:
         await message.reply(f"⚠️ Ошибка: {e}")
+
+# ================= АНКЕТА И ИНТЕРЕСЫ (С ПРОВЕРКОЙ 18+) =================
 
 @dp.message(F.text == "✏️ Заполнить анкету заново")
 async def start_filling_profile(message: types.Message, state: FSMContext):
@@ -207,17 +214,28 @@ async def profile_gender_chosen(message: types.Message, state: FSMContext):
     else:
         await state.update_data(target="🌍 Всех")
         await state.set_state(States.profile_age)
-        await message.answer("📝 Шаг 2/4: Сколько тебе лет? (напиши цифрой)", reply_markup=ReplyKeyboardMarkup(keyboard=[[KeyboardButton(text="❌ Отмена")]], resize_keyboard=True))
+        await message.answer("📝 Шаг 2/4: Сколько тебе лет? (Бот строго 18+! Введи число):", reply_markup=ReplyKeyboardMarkup(keyboard=[[KeyboardButton(text="❌ Отмена")]], resize_keyboard=True))
 
 @dp.message(States.profile_target, F.text.in_(["🔎 Парня", "🔎 Девушку", "🌍 Всех"]))
 async def profile_target_chosen(message: types.Message, state: FSMContext):
     await state.update_data(target=message.text)
     await state.set_state(States.profile_age)
-    await message.answer("📝 Шаг 3/5: Сколько тебе лет? (напиши цифрой)", reply_markup=ReplyKeyboardMarkup(keyboard=[[KeyboardButton(text="❌ Отмена")]], resize_keyboard=True))
+    await message.answer("📝 Шаг 3/5: Сколько тебе лет? (Бот строго 18+! Введи число):", reply_markup=ReplyKeyboardMarkup(keyboard=[[KeyboardButton(text="❌ Отмена")]], resize_keyboard=True))
 
+# Жесткая проверка возраста >= 18
 @dp.message(States.profile_age)
 async def profile_age_chosen(message: types.Message, state: FSMContext):
-    await state.update_data(age=message.text)
+    if not message.text.isdigit():
+        await message.answer("⚠️ Пожалуйста, введи возраст цифрами (например: 18).")
+        return
+
+    age = int(message.text)
+    if age < 18:
+        await message.answer("🛑 **Доступ запрещен!** Использование бота разрешено только лицам старше 18 лет.")
+        await state.clear()
+        return
+
+    await state.update_data(age=str(age))
     await state.set_state(States.profile_interests)
     
     markup = ReplyKeyboardMarkup(
@@ -296,6 +314,8 @@ async def view_profile(message: types.Message):
             reply_markup=get_main_menu()
         )
 
+# ================= ПОДДЕРЖКА =================
+
 @dp.message(F.text == "💬 Поддержка")
 async def support_start(message: types.Message, state: FSMContext):
     await state.set_state(States.waiting_for_support)
@@ -345,6 +365,8 @@ async def admin_reply_to_user(message: types.Message):
                         return
             except Exception as e:
                 await message.reply(f"⚠️ Ошибка при отправке: {e}")
+
+# ================= ПОИСК СОБЕСЕДНИКА =================
 
 @dp.message(F.text == "🔍 Начать поиск собеседника")
 async def start_search(message: types.Message, state: FSMContext):
@@ -448,6 +470,7 @@ async def stop_chat(message: types.Message):
     else:
         await message.answer("Ты не находишься в диалоге.", reply_markup=get_main_menu())
 
+# Пересылка всех типов сообщений в активном чате
 @dp.message()
 async def forward_messages(message: types.Message, state: FSMContext):
     user_id = message.from_user.id
