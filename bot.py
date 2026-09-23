@@ -1,616 +1,190 @@
 import asyncio
 import logging
-import sqlite3
-import time
 from aiogram import Bot, Dispatcher, types, F
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
-from aiogram.types import (
-    InlineKeyboardMarkup, 
-    InlineKeyboardButton, 
-    ReplyKeyboardMarkup, 
-    KeyboardButton,
-    LabeledPrice,
-    PreCheckoutQuery
-)
+from aiogram.types import ReplyKeyboardMarkup, KeyboardButton
 
-TOKEN = "8861156320:AAEd_G2uA0GfNEifOzawEnLAFFFTov-1FHA"
-ADMIN_ID = 123456789  # ⚠️ Замени на свой числовой Telegram ID (или ID канала для жалоб)
+# ================= НАСТРОЙКИ =================
+TOKEN = "8861156320:AAEd_G2uA0GfNEifOzawEnLAFFFTov-1FHA"  # Твой токен
+ADMIN_ID = 6681923689                                   # Твой Telegram ID
+# ============================================
 
 logging.basicConfig(level=logging.INFO)
 bot = Bot(token=TOKEN)
 dp = Dispatcher()
 
-def init_db():
-    conn = sqlite3.connect("users_db.db")
-    cursor = conn.cursor()
-    cursor.execute("""
-        CREATE TABLE IF NOT EXISTS users (
-            user_id INTEGER PRIMARY KEY,
-            gender TEXT,
-            age INTEGER,
-            interests TEXT,
-            status TEXT DEFAULT 'idle',
-            partner_id INTEGER DEFAULT 0,
-            reputation INTEGER DEFAULT 0,
-            chat_start_time REAL DEFAULT 0,
-            is_premium INTEGER DEFAULT 0,
-            premium_expires REAL DEFAULT 0
-        )
-    """)
-    conn.commit()
-    conn.close()
+# Хранилище для активного поиска собеседников (очередь ожидания)
+search_queue = []
+# Активные диалоги: {user_id: partner_id}
+active_chats = {}
 
-init_db()
+# Состояния (FSM)
+class States(StatesGroup):
+    waiting_for_support = State()
 
-INTERESTS = [
-    "🎨 Рисование", "💻 Программирование", "🎮 Игры", 
-    "🎬 Аниме & Манга", "🎧 Музыка", "📚 Книги & Манхва", 
-    "🥋 Боевые искусства", "🍕 Кулинария", 
-    "🐾 Животные", "🔮 Таро & Эзотерика", "📸 Видеомонтаж"
-]
-
-class ProfileState(StatesGroup):
-    waiting_for_gender = State()
-    waiting_for_age = State()
-    waiting_for_interests = State()
-    waiting_for_complaint = State()
-
+# Главное меню
 def get_main_menu():
     return ReplyKeyboardMarkup(
         keyboard=[
             [KeyboardButton(text="🔍 Начать поиск собеседника")],
             [KeyboardButton(text="📄 Посмотреть мою анкету"), KeyboardButton(text="✏️ Заполнить анкету заново")],
-            [KeyboardButton(text="💎 PREMIUM"), KeyboardButton(text="📢 Наш Telegram-канал")]
+            [KeyboardButton(text="💬 Поддержка"), KeyboardButton(text="📢 Наш канал")]
         ],
         resize_keyboard=True
     )
 
+# Меню во время активного диалога
+def get_chat_menu():
+    return ReplyKeyboardMarkup(
+        keyboard=[
+            [KeyboardButton(text="🛑 Остановить диалог")]
+        ],
+        resize_keyboard=True
+    )
+
+# 1. Команда /start
 @dp.message(F.text == "/start")
 async def cmd_start(message: types.Message, state: FSMContext):
-    conn = sqlite3.connect("users_db.db")
-    cursor = conn.cursor()
-    cursor.execute("SELECT * FROM users WHERE user_id = ?", (message.from_user.id,))
-    user = cursor.fetchone()
-    conn.close()
-
-    if user:
-        await message.answer("Ты уже зарегистрирована! Нажми кнопку ниже, чтобы начать общение:", reply_markup=get_main_menu())
-        return
-
-    markup = InlineKeyboardMarkup(inline_keyboard=[
-        [
-            InlineKeyboardButton(text="🙋‍♂️ Парень", callback_data="gender_male"),
-            InlineKeyboardButton(text="🙋‍♀️ Девушка", callback_data="gender_female")
-        ]
-    ])
-    await message.answer("👋 Привет! Создадим твою анкету.\n\nУкажи свой пол:", reply_markup=markup)
-    await state.set_state(ProfileState.waiting_for_gender)
-
-@dp.message(F.text == "📄 Посмотреть мою анкету")
-async def show_my_profile(message: types.Message):
-    user_id = message.from_user.id
-    conn = sqlite3.connect("users_db.db")
-    cursor = conn.cursor()
-    cursor.execute("SELECT gender, age, interests, reputation, is_premium, premium_expires FROM users WHERE user_id = ?", (user_id,))
-    row = cursor.fetchone()
-    conn.close()
-
-    if not row:
-        await message.answer("⚠️ У тебя еще нет анкеты. Нажми /start, чтобы создать ее.")
-        return
-
-    gender, age, interests, reputation, is_premium, premium_expires = row
-    
-    # Проверка актуальности премиума по времени
-    if is_premium and premium_expires > 0 and time.time() > premium_expires:
-        conn = sqlite3.connect("users_db.db")
-        cursor = conn.cursor()
-        cursor.execute("UPDATE users SET is_premium = 0, premium_expires = 0 WHERE user_id = ?", (user_id,))
-        conn.commit()
-        conn.close()
-        is_premium = 0
-
-    status_text = "💎 Активен" if is_premium else "❌ Обычный"
-    
-    await message.answer(
-        f"📄 **Твоя анкета:**\n\n"
-        f"👤 Пол: {gender}\n"
-        f"🎂 Возраст: {age}\n"
-        f"✨ Интересы: {interests}\n"
-        f"⭐ Репутация: {reputation}\n"
-        f"💎 Статус: {status_text}",
-        reply_markup=get_main_menu()
-    )
-
-@dp.message(F.text == "💎 PREMIUM")
-@dp.message(F.text == "/premium")
-async def show_premium_menu(message: types.Message):
-    text = (
-        "Общайся с 💎 PREMIUM без ограничений!\n\n"
-        "👫 Поиск по полу\n"
-        "👥 Видишь пол и возраст собеседника\n"
-        "💎 Твой PREMIUM-статус виден всем\n"
-        "⚡ Быстрый поиск и никакой рекламы\n\n"
-        "Выбери подходящий тариф:"
-    )
-    markup = InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="⏳ 1 день — 15 ⭐", callback_data="buy_stars_1day")],
-        [InlineKeyboardButton(text="📅 1 неделя — 50 ⭐", callback_data="buy_stars_1week")],
-        [InlineKeyboardButton(text="🗓 1 месяц — 150 ⭐", callback_data="buy_stars_1month")],
-        [InlineKeyboardButton(text="♾ Навсегда — 400 ⭐", callback_data="buy_stars_lifetime")],
-        [InlineKeyboardButton(text="⬅️ Назад в меню", callback_data="main_menu_callback")]
-    ])
-    await message.answer(text, reply_markup=markup)
-
-@dp.callback_query(F.data == "main_menu_callback")
-async def back_to_menu_cb(callback: types.CallbackQuery):
-    await callback.message.delete()
-    await callback.message.answer("Главное меню:", reply_markup=get_main_menu())
-    await callback.answer()
-
-@dp.callback_query(F.data.startswith("buy_stars_"))
-async def process_buy_stars(callback: types.CallbackQuery, bot: Bot):
-    tariff = callback.data.replace("buy_stars_", "")
-    
-    if tariff == "1day":
-        prices = [LabeledPrice(label="PREMIUM на 1 день", amount=15)]
-        title = "PREMIUM (1 день)"
-        description = "Доступ к премиум-функциям на 24 часа."
-    elif tariff == "1week":
-        prices = [LabeledPrice(label="PREMIUM на 1 неделю", amount=50)]
-        title = "PREMIUM (1 неделя)"
-        description = "Доступ к премиум-функциям на 7 дней."
-    elif tariff == "1month":
-        prices = [LabeledPrice(label="PREMIUM на 1 месяц", amount=150)]
-        title = "PREMIUM (1 месяц)"
-        description = "Доступ к премиум-функциям на 30 дней."
-    elif tariff == "lifetime":
-        prices = [LabeledPrice(label="PREMIUM Навсегда", amount=400)]
-        title = "PREMIUM (Навсегда)"
-        description = "Пожизненный доступ ко всем премиум-функциям бота."
-    else:
-        return
-
-    await bot.send_invoice(
-        chat_id=callback.message.chat.id,
-        title=title,
-        description=description,
-        payload=f"premium_{tariff}",
-        provider_token="",  # Для Telegram Stars всегда пусто
-        currency="XTR",     # Валюта Telegram Stars
-        prices=prices,
-    )
-    await callback.answer()
-
-@dp.pre_checkout_query()
-async def process_pre_checkout_query(pre_checkout_query: PreCheckoutQuery, bot: Bot):
-    await bot.answer_pre_checkout_query(pre_checkout_query.id, ok=True)
-
-@dp.message(F.successful_payment)
-async def process_successful_payment(message: types.Message):
-    payment_info = message.successful_payment
-    user_id = message.from_user.id
-    payload = payment_info.invoice_payload
-    
-    current_time = time.time()
-    
-    if "1day" in payload:
-        expires_at = current_time + (1 * 24 * 60 * 60)
-        tariff_name = "1 день"
-    elif "1week" in payload:
-        expires_at = current_time + (7 * 24 * 60 * 60)
-        tariff_name = "1 неделя"
-    elif "1month" in payload:
-        expires_at = current_time + (30 * 24 * 60 * 60)
-        tariff_name = "1 месяц"
-    elif "lifetime" in payload:
-        expires_at = current_time + (365 * 100 * 24 * 60 * 60) # Навсегда
-        tariff_name = "Навсегда"
-    else:
-        expires_at = current_time + (30 * 24 * 60 * 60)
-        tariff_name = "1 месяц"
-    
-    conn = sqlite3.connect("users_db.db")
-    cursor = conn.cursor()
-    cursor.execute("""
-        UPDATE users SET is_premium = 1, premium_expires = ? WHERE user_id = ?
-    """, (expires_at, user_id))
-    conn.commit()
-    conn.close()
-
-    await message.answer(
-        "🎉 **Оплата прошла успешно!**\n\n"
-        f"Тариф: {tariff_name}\n"
-        f"Списано: {payment_info.total_amount} ⭐\n"
-        "Твой статус **💎 PREMIUM** активирован. Приятного общения!",
-        reply_markup=get_main_menu()
-    )
-
-@dp.message(F.text == "📢 Наш Telegram-канал")
-async def channel_info(message: types.Message):
-    await message.answer(
-        "📢 **Наш официальный Telegram-канал:**\n\n"
-        "Здесь будут публиковаться новости, обновления и анонсы бота!\n\n"
-        "👉 Подписывайся: https://t.me/anonimnyichat_ru_channel",
-        reply_markup=get_main_menu()
-    )
-
-@dp.message(F.text == "✏️ Заполнить анкету заново")
-@dp.message(F.text == "/edit")
-async def cmd_edit_profile(message: types.Message, state: FSMContext):
-    markup = InlineKeyboardMarkup(inline_keyboard=[
-        [
-            InlineKeyboardButton(text="🙋‍♂️ Парень", callback_data="gender_male"),
-            InlineKeyboardButton(text="🙋‍♀️ Девушка", callback_data="gender_female")
-        ]
-    ])
-    await message.answer("🔄 Давай обновим твою анкету.\n\nУкажи свой пол:", reply_markup=markup)
-    await state.set_state(ProfileState.waiting_for_gender)
-
-@dp.callback_query(F.data.startswith("gender_"), ProfileState.waiting_for_gender)
-async def process_gender(callback: types.CallbackQuery, state: FSMContext):
-    gender = "Парень" if callback.data == "gender_male" else "Девушка"
-    await state.update_data(gender=gender, selected_interests=[])
-    
-    await callback.message.edit_text(f"Пол выбран: {gender}\n\nТеперь введи свой возраст цифрой (строго от 18 лет):")
-    await state.set_state(ProfileState.waiting_for_age)
-    await callback.answer()
-
-@dp.message(ProfileState.waiting_for_age)
-async def process_age(message: types.Message, state: FSMContext):
-    if not message.text or not message.text.isdigit() or not (18 <= int(message.text) <= 99):
-        await message.answer("⚠️ Ошибка! Доступ разрешен только с 18 лет. Введи корректный возраст:")
-        return
-
-    await state.update_data(age=int(message.text))
-    await state.set_state(ProfileState.waiting_for_interests)
-    await send_interests_message(message, state, "Отлично! Теперь выбери интересы (можно выбрать от 1 до 5):")
-
-async def send_interests_message(message_or_callback, state: FSMContext, text: str):
-    data = await state.get_data()
-    selected = data.get("selected_interests", [])
-
-    buttons = []
-    for interest in INTERESTS:
-        btn_text = f"✅ {interest}" if interest in selected else interest
-        buttons.append([InlineKeyboardButton(text=btn_text, callback_data=f"interest_{interest}")])
-    
-    buttons.append([InlineKeyboardButton(text="🚀 Готово (сохранить анкету)", callback_data="interests_done")])
-    markup = InlineKeyboardMarkup(inline_keyboard=buttons)
-
-    if isinstance(message_or_callback, types.CallbackQuery):
-        try:
-            await message_or_callback.message.edit_text(text, reply_markup=markup)
-        except Exception:
-            await message_or_callback.message.answer(text, reply_markup=markup)
-    else:
-        await message_or_callback.answer(text, reply_markup=markup)
-
-@dp.callback_query(F.data.startswith("interest_"), ProfileState.waiting_for_interests)
-async def process_interest_toggle(callback: types.CallbackQuery, state: FSMContext):
-    interest = callback.data.replace("interest_", "")
-    data = await state.get_data()
-    selected = data.get("selected_interests", [])
-
-    if interest in selected:
-        selected.remove(interest)
-    else:
-        if len(selected) >= 5:
-            await callback.answer("⚠️ Можно выбрать максимум 5 интересов!", show_alert=True)
-            return
-        selected.append(interest)
-
-    await state.update_data(selected_interests=selected)
-    await send_interests_message(callback, state, f"Выбрано интересов: {len(selected)}. Жми еще или «Готово»:")
-    await callback.answer()
-
-@dp.callback_query(F.data == "interests_done", ProfileState.waiting_for_interests)
-async def process_interests_done(callback: types.CallbackQuery, state: FSMContext):
-    data = await state.get_data()
-    user_id = callback.from_user.id
-    gender = data.get("gender")
-    age = data.get("age")
-    interests = data.get("selected_interests", [])
-
-    if not interests:
-        await callback.answer("⚠️ Выбери хотя бы один интерес перед сохранением!", show_alert=True)
-        return
-
-    interests_str = ", ".join(interests)
-    
-    conn = sqlite3.connect("users_db.db")
-    cursor = conn.cursor()
-    cursor.execute("""
-        INSERT INTO users (user_id, gender, age, interests, status, partner_id, reputation, chat_start_time)
-        VALUES (?, ?, ?, ?, 'idle', 0, 0, 0)
-        ON CONFLICT(user_id) DO UPDATE SET
-        gender=excluded.gender,
-        age=excluded.age,
-        interests=excluded.interests,
-        status='idle'
-    """, (user_id, gender, age, interests_str))
-    conn.commit()
-    conn.close()
-
-    await callback.answer("Анкета успешно сохранена!")
-
-    try:
-        await callback.message.delete()
-    except Exception:
-        pass
-
-    await callback.message.answer(
-        f"🎉 Твоя анкета готова!\n\n"
-        f"👤 Пол: {gender}\n"
-        f"🎂 Возраст: {age}\n"
-        f"✨ Интересы: {interests_str}\n\n"
-        f"Всё готово к общению! Нажми кнопку ниже 👇",
-        reply_markup=get_main_menu()
-    )
-    
     await state.clear()
-
-@dp.message(F.text == "🔍 Начать поиск собеседника")
-async def start_search(message: types.Message):
     user_id = message.from_user.id
-    current_time = time.time()
-    
-    conn = sqlite3.connect("users_db.db")
-    cursor = conn.cursor()
-    
-    cursor.execute("SELECT status, gender, age, interests, is_premium, premium_expires FROM users WHERE user_id = ?", (user_id,))
-    row = cursor.fetchone()
-    if not row:
-        conn.close()
-        await message.answer("Сначала заполни анкету с помощью /start")
-        return
-        
-    if row[0] == 'chatting':
-        conn.close()
-        await message.answer("⚠️ Ты уже общаешься с кем-то! Сначала заверши текущий диалог.")
-        return
+    if user_id in active_chats:
+        partner_id = active_chats.pop(user_id)
+        if partner_id in active_chats:
+            active_chats.pop(partner_id)
+        try:
+            await bot.send_message(partner_id, "⚠️ Собеседник завершил сеанс.", reply_markup=get_main_menu())
+        except:
+            pass
 
-    my_status, my_gender, my_age, my_interests, my_is_premium, my_expires = row[0], row[1], row[2], row[3], row[4], row[5]
-
-    if my_is_premium and my_expires > 0 and current_time > my_expires:
-        cursor.execute("UPDATE users SET is_premium = 0, premium_expires = 0 WHERE user_id = ?", (user_id,))
-        conn.commit()
-        my_is_premium = 0
-
-    cursor.execute("SELECT user_id, gender, age, interests, reputation, is_premium FROM users WHERE status = 'searching' AND user_id != ? LIMIT 1", (user_id,))
-    partner = cursor.fetchone()
-
-    stop_menu = ReplyKeyboardMarkup(
-        keyboard=[[KeyboardButton(text="🛑 Остановить поиск")]],
-        resize_keyboard=True
+    await message.answer(
+        "👋 Привет! Добро пожаловать в анонимный чат.\n\n"
+        "Здесь ты можешь общаться с анонимными собеседниками, заводить новые знакомства и делиться мыслями.",
+        reply_markup=get_main_menu()
     )
 
-    if partner:
-        partner_id, p_gender, p_age, p_interests, p_rep, p_is_premium = partner[0], partner[1], partner[2], partner[3], partner[4], partner[5]
-        
-        cursor.execute("UPDATE users SET status = 'chatting', partner_id = ?, chat_start_time = ? WHERE user_id = ?", (partner_id, current_time, user_id))
-        cursor.execute("UPDATE users SET status = 'chatting', partner_id = ?, chat_start_time = ? WHERE user_id = ?", (user_id, current_time, partner_id))
-        conn.commit()
-        conn.close()
+# 2. Кнопка "📢 Наш канал"
+@dp.message(F.text == "📢 Наш канал")
+async def channel_link(message: types.Message):
+    await message.answer("📢 Наш официальный канал: https://t.me/твой_канал", reply_markup=get_main_menu())
 
-        chat_control_menu = ReplyKeyboardMarkup(
-            keyboard=[
-                [KeyboardButton(text="🔗 Оставить ссылку на профиль")],
-                [KeyboardButton(text="❌ Завершить диалог")]
-            ],
+# ================= РАЗДЕЛ ПОДДЕРЖКИ =================
+
+@dp.message(F.text == "💬 Поддержка")
+async def support_start(message: types.Message, state: FSMContext):
+    await state.set_state(States.waiting_for_support)
+    await message.answer(
+        "💬 **Служба поддержки**\n\n"
+        "Напиши свой вопрос, жалобу или предложение одним сообщением, и администратор ответит тебе в ближайшее время.",
+        reply_markup=ReplyKeyboardMarkup(
+            keyboard=[[KeyboardButton(text="❌ Отмена")]],
             resize_keyboard=True
         )
-
-        my_badge = " 💎 PREMIUM" if my_is_premium else ""
-        p_badge = " 💎 PREMIUM" if p_is_premium else ""
-
-        await message.answer(
-            f"🎉 Собеседник найден!{p_badge}\n\n"
-            f"👤 Пол: {p_gender}\n"
-            f"🎂 Возраст: {p_age}\n"
-            f"✨ Интересы: {p_interests}\n"
-            f"⭐ Репутация: {p_rep}\n\n"
-            f"⏱ Через 1 минуту общения здесь появится возможность поделиться ссылкой на свой аккаунт.",
-            reply_markup=chat_control_menu
-        )
-        
-        await bot.send_message(
-            partner_id,
-            f"🎉 Собеседник найден!{my_badge}\n\n"
-            f"👤 Пол: {my_gender}\n"
-            f"🎂 Возраст: {my_age}\n"
-            f"✨ Интересы: {my_interests}\n"
-            f"⭐ Репутация: {row[4] if len(row) > 4 else 0}\n\n"
-            f"⏱ Через 1 минуту общения здесь появится возможность поделиться ссылкой на свой аккаунт.",
-            reply_markup=chat_control_menu
-        )
-    else:
-        cursor.execute("UPDATE users SET status = 'searching' WHERE user_id = ?", (user_id,))
-        conn.commit()
-        conn.close()
-
-        await message.answer("⏳ Ищем подходящего собеседника...", reply_markup=stop_menu)
-
-@dp.message(F.text == "🛑 Остановить поиск")
-async def stop_search(message: types.Message):
-    user_id = message.from_user.id
-    conn = sqlite3.connect("users_db.db")
-    cursor = conn.cursor()
-    cursor.execute("UPDATE users SET status = 'idle' WHERE user_id = ?", (user_id,))
-    conn.commit()
-    conn.close()
-
-    await message.answer("❌ Поиск отменен.", reply_markup=get_main_menu())
-
-@dp.message(F.text == "🔗 Оставить ссылку на профиль")
-async def share_profile(message: types.Message):
-    user_id = message.from_user.id
-    current_time = time.time()
-
-    conn = sqlite3.connect("users_db.db")
-    cursor = conn.cursor()
-    cursor.execute("SELECT status, partner_id, chat_start_time FROM users WHERE user_id = ?", (user_id,))
-    row = cursor.fetchone()
-    conn.close()
-
-    if not row or row[0] != 'chatting':
-        await message.answer("⚠️ Ты не находишься в активном чате.")
-        return
-
-    partner_id = row[1]
-    start_time = row[2]
-
-    if current_time - start_time < 60:
-        remaining = int(60 - (current_time - start_time))
-        await message.answer(f"⏳ Рано! Общаться нужно хотя бы 1 минуту. Подожди еще {remaining} секунд.")
-        return
-
-    user = await bot.get_chat(user_id)
-    if user.username:
-        profile_link = f"@{user.username}"
-    else:
-        profile_link = f"tg://user?id={user_id}"
-
-    await message.answer("✅ Ты отправил свою ссылку на профиль собеседнику.")
-    await bot.send_message(partner_id, f"✨ Собеседник поделился своим контактом: {profile_link}")
-
-@dp.message(F.text == "❌ Завершить диалог")
-async def stop_chat(message: types.Message):
-    user_id = message.from_user.id
-    conn = sqlite3.connect("users_db.db")
-    cursor = conn.cursor()
-    
-    cursor.execute("SELECT partner_id FROM users WHERE user_id = ?", (user_id,))
-    row = cursor.fetchone()
-    
-    partner_id = 0
-    if row and row[0]:
-        partner_id = row[0]
-        cursor.execute("UPDATE users SET status = 'idle', partner_id = 0, chat_start_time = 0 WHERE user_id = ?", (partner_id,))
-        
-        rate_markup_partner = InlineKeyboardMarkup(inline_keyboard=[
-            [
-                InlineKeyboardButton(text="👍 Хорошо", callback_data=f"rate_good_{user_id}"),
-                InlineKeyboardButton(text="👎 Плохо", callback_data=f"rate_bad_{user_id}")
-            ],
-            [
-                InlineKeyboardButton(text="🚨 Пожаловаться админам", callback_data=f"complaint_{user_id}")
-            ]
-        ])
-        
-        await bot.send_message(partner_id, "😢 Собеседник завершил диалог.", reply_markup=get_main_menu())
-        await bot.send_message(partner_id, "Оцени общение или отправь жалобу:", reply_markup=rate_markup_partner)
-
-    cursor.execute("UPDATE users SET status = 'idle', partner_id = 0, chat_start_time = 0 WHERE user_id = ?", (user_id,))
-    conn.commit()
-    conn.close()
-    
-    rate_markup_user = InlineKeyboardMarkup(inline_keyboard=[
-        [
-            InlineKeyboardButton(text="👍 Хорошо", callback_data=f"rate_good_{partner_id}"),
-            InlineKeyboardButton(text="👎 Плохо", callback_data=f"rate_bad_{partner_id}")
-        ],
-        [
-            InlineKeyboardButton(text="🚨 Пожаловаться админам", callback_data=f"complaint_{partner_id}")
-        ]
-    ])
-
-    await message.answer("❌ Диалог завершен.", reply_markup=get_main_menu())
-    await message.answer("Оцени общение или отправь жалобу:", reply_markup=rate_markup_user)
-
-@dp.callback_query(F.data.startswith("rate_"))
-async def process_rating(callback: types.CallbackQuery):
-    data_parts = callback.data.split("_")
-    action = data_parts[1]
-    target_user_id = int(data_parts[2]) if len(data_parts) > 2 and data_parts[2].isdigit() else 0
-    
-    conn = sqlite3.connect("users_db.db")
-    cursor = conn.cursor()
-
-    if action == "good":
-        if target_user_id:
-            cursor.execute("UPDATE users SET reputation = reputation + 1 WHERE user_id = ?", (target_user_id,))
-            conn.commit()
-        await callback.message.edit_text("👍 Спасибо за оценку! Репутация собеседника повышена.")
-    else:
-        if target_user_id:
-            cursor.execute("UPDATE users SET reputation = reputation - 1 WHERE user_id = ?", (target_user_id,))
-            conn.commit()
-        await callback.message.edit_text("👎 Спасибо за оценку.")
-        
-    conn.close()
-    await callback.answer()
-
-@dp.callback_query(F.data.startswith("complaint_"))
-async def process_complaint_start(callback: types.CallbackQuery, state: FSMContext):
-    target_user_id = callback.data.split("_")[1]
-    await state.update_data(target_user_id=target_user_id)
-    await state.set_state(ProfileState.waiting_for_complaint)
-    
-    await callback.message.edit_text("🚨 Напиши текстом причину жалобы на собеседника:")
-    await callback.answer()
-
-@dp.message(ProfileState.waiting_for_complaint)
-async def process_complaint_send(message: types.Message, state: FSMContext):
-    data = await state.get_data()
-    target_user_id = data.get("target_user_id")
-    reporter_id = message.from_user.id
-    reporter_username = f"@{message.from_user.username}" if message.from_user.username else f"id: {reporter_id}"
-
-    if target_user_id and target_user_id.isdigit():
-        conn = sqlite3.connect("users_db.db")
-        cursor = conn.cursor()
-        cursor.execute("UPDATE users SET reputation = reputation - 5 WHERE user_id = ?", (int(target_user_id),))
-        conn.commit()
-        conn.close()
-
-    complaint_text = (
-        f"🚨 **Новая жалоба на пользователя!**\n\n"
-        f"👤 От кого: {reporter_username} (`{reporter_id}`)\n"
-        f"🎯 Нарушитель (ID): `{target_user_id}`\n"
-        f"📄 Причина: {message.text}"
     )
-    
-    try:
-        await bot.send_message(ADMIN_ID, complaint_text)
-    except Exception:
-        pass
 
-    await message.answer("✅ Жалоба успешно отправлена администраторам.", reply_markup=get_main_menu())
+@dp.message(F.text == "❌ Отмена", States.waiting_for_support)
+async def support_cancel(message: types.Message, state: FSMContext):
+    await state.clear()
+    await message.answer("❌ Обращение отменено.", reply_markup=get_main_menu())
+
+@dp.message(States.waiting_for_support)
+async def support_send_to_admin(message: types.Message, state: FSMContext):
+    user_id = message.from_user.id
+    username = f"@{message.from_user.username}" if message.from_user.username else f"ID: {user_id}"
+
+    admin_text = (
+        f"📩 **Новое обращение в поддержку!**\n\n"
+        f"👤 От: {username}\n"
+        f"🆔 ID пользователя: `{user_id}`\n\n"
+        f"💬 Текст: {message.text}"
+    )
+
+    try:
+        await bot.send_message(ADMIN_ID, admin_text)
+        await message.answer("✅ Твое сообщение успешно отправлено поддержке! Жди ответа.", reply_markup=get_main_menu())
+    except Exception:
+        await message.answer("⚠️ Не удалось отправить сообщение. Попробуй позже.", reply_markup=get_main_menu())
+    
     await state.clear()
 
-@dp.message()
-async def pass_messages(message: types.Message):
+# Ответ администратора пользователю (сделай Reply/Ответить на сообщение бота у себя в чате)
+@dp.message(F.chat.id == ADMIN_ID)
+async def admin_reply_to_user(message: types.Message):
+    if message.reply_to_message:
+        reply_text = message.reply_to_message.text
+        if "🆔 ID пользователя:" in reply_text:
+            try:
+                for line in reply_text.split("\n"):
+                    if "🆔 ID пользователя:" in line:
+                        target_user_id = int(line.replace("🆔 ID пользователя:", "").replace("`", "").strip())
+                        await bot.send_message(
+                            target_user_id,
+                            f"💬 **Ответ от поддержки:**\n\n{message.text}"
+                        )
+                        await message.reply("✅ Ответ успешно отправлен пользователю!")
+                        return
+            except Exception as e:
+                await message.reply(f"⚠️ Ошибка при отправке ответа: {e}")
+
+# ================= РАЗДЕЛ ПОИСКА СОБЕСЕДНИКОВ =================
+
+@dp.message(F.text == "🔍 Начать поиск собеседника")
+async def start_search(message: types.Message, state: FSMContext):
     user_id = message.from_user.id
-    
-    ignore_texts = [
-        "🔍 Начать поиск собеседника", 
-        "🛑 Остановить поиск", 
-        "❌ Завершить диалог", 
-        "🔗 Оставить ссылку на профиль", 
-        "✏️ Заполнить анкету заново",
-        "📄 Посмотреть мою анкету",
-        "💎 PREMIUM",
-        "📢 Наш Telegram-канал"
-    ]
-    
-    if message.text in ignore_texts:
+    if user_id in active_chats:
+        await message.answer("Ты уже находишься в диалоге! Сначала заверши его.", reply_markup=get_chat_menu())
         return
 
-    conn = sqlite3.connect("users_db.db")
-    cursor = conn.cursor()
-    cursor.execute("SELECT status, partner_id FROM users WHERE user_id = ?", (user_id,))
-    row = cursor.fetchone()
-    conn.close()
+    if user_id in search_queue:
+        await message.answer("⏳ Ты уже ищешь собеседника, подожди немного...", reply_markup=get_chat_menu())
+        return
 
-    if row and row[0] == 'chatting' and row[1]:
-        partner_id = row[1]
+    if search_queue:
+        partner_id = search_queue.pop(0)
+        
+        active_chats[user_id] = partner_id
+        active_chats[partner_id] = user_id
+
+        await bot.send_message(user_id, "🎉 Собеседник найден! Можете общаться. Чтобы выйти, нажмите кнопку ниже.", reply_markup=get_chat_menu())
+        await bot.send_message(partner_id, "🎉 Собеседник найден! Можете общаться. Чтобы выйти, нажмите кнопку ниже.", reply_markup=get_chat_menu())
+    else:
+        search_queue.append(user_id)
+        await message.answer("🔍 Ищем тебе собеседника...", reply_markup=get_chat_menu())
+
+@dp.message(F.text == "🛑 Остановить диалог")
+async def stop_chat(message: types.Message):
+    user_id = message.from_user.id
+    
+    if user_id in search_queue:
+        search_queue.remove(user_id)
+        await message.answer("❌ Поиск остановлен.", reply_markup=get_main_menu())
+        return
+
+    if user_id in active_chats:
+        partner_id = active_chats.pop(user_id)
+        if partner_id in active_chats:
+            active_chats.pop(partner_id)
+        
+        await message.answer("🛑 Диалог завершен.", reply_markup=get_main_menu())
+        try:
+            await bot.send_message(partner_id, "🛑 Собеседник покинул чат.", reply_markup=get_main_menu())
+        except:
+            pass
+    else:
+        await message.answer("Ты не находишься в диалоге.", reply_markup=get_main_menu())
+
+# Пересылка сообщений между собеседниками
+@dp.message()
+async def forward_messages(message: types.Message, state: FSMContext):
+    user_id = message.from_user.id
+    if user_id in active_chats:
+        partner_id = active_chats[user_id]
         try:
             await message.copy_to(partner_id)
         except Exception:
             await message.answer("⚠️ Не удалось отправить сообщение собеседнику.")
 
+# Запуск бота
 async def main():
     print("Бот запущен и готов к работе!")
     await dp.start_polling(bot)
