@@ -23,7 +23,7 @@ active_chats = {}
 class States(StatesGroup):
     waiting_for_support = State()
 
-# Главное меню
+# Главное меню (кнопки внизу экрана)
 def get_main_menu():
     return ReplyKeyboardMarkup(
         keyboard=[
@@ -107,7 +107,7 @@ async def support_send_to_admin(message: types.Message, state: FSMContext):
     
     await state.clear()
 
-# Ответ администратора пользователю (сделай Reply/Ответить на сообщение бота у себя в чате)
+# Ответ администратора пользователю (через Reply у себя в чате)
 @dp.message(F.chat.id == ADMIN_ID)
 async def admin_reply_to_user(message: types.Message):
     if message.reply_to_message:
