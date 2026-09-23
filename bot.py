@@ -25,7 +25,6 @@ class States(StatesGroup):
     profile_target = State()
     profile_age = State()
     profile_interests = State()
-    profile_bio = State()
 
 def get_main_menu():
     return ReplyKeyboardMarkup(
@@ -60,7 +59,7 @@ async def cmd_start(message: types.Message, state: FSMContext):
             pass
 
     await message.answer(
-        "👋 Привет! Добро пожаловать в анонимный чат (**строго 18+**).\n\n"
+        "👋 Привет! Добро пожаловать в анонимный чат.\n\n"
         "Здесь ты можешь общаться с анонимными собеседниками и заводить новые знакомства.",
         reply_markup=get_main_menu()
     )
@@ -132,7 +131,7 @@ async def process_pre_checkout_query(pre_checkout_query: types.PreCheckoutQuery)
 async def successful_payment(message: types.Message):
     user_id = message.from_user.id
     if user_id not in user_profiles:
-        user_profiles[user_id] = {"gender": "👤 Парень", "target": "🌍 Всех", "age": "18", "interests": "🎨 Рисование", "bio": "Пусто", "is_premium": True}
+        user_profiles[user_id] = {"gender": "👤 Парень", "target": "🌍 Всех", "age": "18", "interests": "🎨 Рисование", "is_premium": True}
     else:
         user_profiles[user_id]["is_premium"] = True
         
@@ -156,7 +155,7 @@ async def admin_give_premium(message: types.Message):
     try:
         target_id = int(parts[1])
         if target_id not in user_profiles:
-            user_profiles[target_id] = {"gender": "👤 Парень", "target": "🌍 Всех", "age": "18", "interests": "🎨 Рисование", "bio": "Пусто", "is_premium": True}
+            user_profiles[target_id] = {"gender": "👤 Парень", "target": "🌍 Всех", "age": "18", "interests": "🎨 Рисование", "is_premium": True}
         else:
             user_profiles[target_id]["is_premium"] = True
             
@@ -183,7 +182,7 @@ async def start_filling_profile(message: types.Message, state: FSMContext):
     user_id = message.from_user.id
     is_prem = user_profiles.get(user_id, {}).get("is_premium", False)
     
-    steps_total = "5" if is_prem else "4"
+    steps_total = "4" if is_prem else "3"
     await message.answer(f"📝 Шаг 1/{steps_total}: Укажи свой пол:", reply_markup=markup)
 
 @dp.message(F.text == "❌ Отмена")
@@ -207,19 +206,18 @@ async def profile_gender_chosen(message: types.Message, state: FSMContext):
             ],
             resize_keyboard=True
         )
-        await message.answer("📝 Шаг 2/5: Кого ты хочешь искать?", reply_markup=markup)
+        await message.answer("📝 Шаг 2/4: Кого ты хочешь искать?", reply_markup=markup)
     else:
         await state.update_data(target="🌍 Всех")
         await state.set_state(States.profile_age)
-        await message.answer("📝 Шаг 2/4: Сколько тебе лет?\n⚠️ **Бот строго 18+!** Введи возраст цифрой:", reply_markup=ReplyKeyboardMarkup(keyboard=[[KeyboardButton(text="❌ Отмена")]], resize_keyboard=True))
+        await message.answer("📝 Шаг 2/3: Сколько тебе лет?\nВведи возраст цифрой:", reply_markup=ReplyKeyboardMarkup(keyboard=[[KeyboardButton(text="❌ Отмена")]], resize_keyboard=True))
 
 @dp.message(States.profile_target, F.text.in_(["🔎 Парня", "🔎 Девушку", "🌍 Всех"]))
 async def profile_target_chosen(message: types.Message, state: FSMContext):
     await state.update_data(target=message.text)
     await state.set_state(States.profile_age)
-    await message.answer("📝 Шаг 3/5: Сколько тебе лет?\n⚠️ **Бот строго 18+!** Введи возраст цифрой:", reply_markup=ReplyKeyboardMarkup(keyboard=[[KeyboardButton(text="❌ Отмена")]], resize_keyboard=True))
+    await message.answer("📝 Шаг 3/4: Сколько тебе лет?\nВведи возраст цифрой:", reply_markup=ReplyKeyboardMarkup(keyboard=[[KeyboardButton(text="❌ Отмена")]], resize_keyboard=True))
 
-# Проверка возраста (если < 18, просим ввести заново без сброса анкеты)
 @dp.message(States.profile_age)
 async def profile_age_chosen(message: types.Message, state: FSMContext):
     if not message.text.isdigit():
@@ -227,14 +225,6 @@ async def profile_age_chosen(message: types.Message, state: FSMContext):
         return
 
     age = int(message.text)
-    if age < 18:
-        await message.answer(
-            "🛑 **Сюда нельзя!** Использование бота разрешено только с 18 лет.\n"
-            "Пожалуйста, введи реальный возраст (от 18 и выше):",
-            reply_markup=ReplyKeyboardMarkup(keyboard=[[KeyboardButton(text="❌ Отмена")]], resize_keyboard=True)
-        )
-        return
-
     await state.update_data(age=str(age))
     await state.set_state(States.profile_interests)
     
@@ -249,21 +239,12 @@ async def profile_age_chosen(message: types.Message, state: FSMContext):
     )
     user_id = message.from_user.id
     is_prem = user_profiles.get(user_id, {}).get("is_premium", False)
-    step_num = "4/5" if is_prem else "3/4"
+    step_num = "4/4" if is_prem else "3/3"
+    
     await message.answer(f"📝 Шаг {step_num}: Выбери свой главный интерес:", reply_markup=markup)
 
 @dp.message(States.profile_interests, F.text.in_(["🎨 Рисование", "🎬 Сериалы", "📖 Книги", "🌸 Аниме", "⚽ Спорт", "🎵 Музыка"]))
 async def profile_interests_chosen(message: types.Message, state: FSMContext):
-    await state.update_data(interests=message.text)
-    await state.set_state(States.profile_bio)
-    
-    user_id = message.from_user.id
-    is_prem = user_profiles.get(user_id, {}).get("is_premium", False)
-    step_num = "5/5" if is_prem else "4/4"
-    await message.answer(f"📝 Шаг {step_num}: Напиши пару слов о себе (описание):", reply_markup=ReplyKeyboardMarkup(keyboard=[[KeyboardButton(text="❌ Отмена")]], resize_keyboard=True))
-
-@dp.message(States.profile_bio)
-async def profile_bio_chosen(message: types.Message, state: FSMContext):
     data = await state.get_data()
     user_id = message.from_user.id
     is_prem = user_profiles.get(user_id, {}).get("is_premium", False)
@@ -272,8 +253,7 @@ async def profile_bio_chosen(message: types.Message, state: FSMContext):
         "gender": data["gender"],
         "target": data.get("target", "🌍 Всех"),
         "age": data["age"],
-        "interests": data["interests"],
-        "bio": message.text,
+        "interests": message.text,
         "is_premium": is_prem
     }
     
@@ -285,8 +265,7 @@ async def profile_bio_chosen(message: types.Message, state: FSMContext):
         f"👤 Пол: {data['gender']}"
         f"{target_info}\n"
         f"🎂 Возраст: {data['age']}\n"
-        f"💡 Интерес: {data['interests']}\n"
-        f"📄 Описание: {message.text}",
+        f"💡 Интерес: {message.text}",
         reply_markup=get_main_menu()
     )
 
@@ -302,8 +281,7 @@ async def view_profile(message: types.Message):
             f"👤 Пол: {p['gender']}"
             f"{target_info}\n"
             f"🎂 Возраст: {p['age']}\n"
-            f"💡 Интерес: {p.get('interests', 'Не указан')}\n"
-            f"📄 Описание: {p['bio']}",
+            f"💡 Интерес: {p.get('interests', 'Не указан')}",
             reply_markup=get_main_menu(),
             parse_mode="Markdown"
         )
@@ -399,8 +377,8 @@ async def start_search(message: types.Message):
             p2 = user_profiles.get(partner_id, {})
 
             try:
-                await bot.send_message(user_id, f"🎉 Собеседник найден!\nПол: {p2.get('gender')}, {p2.get('age')} лет\nИнтерес: {p2.get('interests')}\nОписание: {p2.get('bio')}", reply_markup=get_chat_menu())
-                await bot.send_message(partner_id, f"🎉 Собеседник найден!\nПол: {p1.get('gender')}, {p1.get('age')} лет\nИнтерес: {p1.get('interests')}\nОписание: {p1.get('bio')}", reply_markup=get_chat_menu())
+                await bot.send_message(user_id, f"🎉 Собеседник найден!\nПол: {p2.get('gender')}, {p2.get('age')} лет\nИнтерес: {p2.get('interests')}", reply_markup=get_chat_menu())
+                await bot.send_message(partner_id, f"🎉 Собеседник найден!\nПол: {p1.get('gender')}, {p1.get('age')} лет\nИнтерес: {p1.get('interests')}", reply_markup=get_chat_menu())
             except:
                 pass
             return
@@ -441,8 +419,8 @@ async def start_search(message: types.Message):
         p2 = user_profiles.get(partner_id, {})
 
         try:
-            await bot.send_message(user_id, f"🎉 Собеседник найден!\nПол: {p2.get('gender')}, {p2.get('age')} лет\nИнтерес: {p2.get('interests')}\nОписание: {p2.get('bio')}", reply_markup=get_chat_menu())
-            await bot.send_message(partner_id, f"🎉 Собеседник найден!\nПол: {p1.get('gender')}, {p1.get('age')} лет\nИнтерес: {p1.get('interests')}\nОписание: {p1.get('bio')}", reply_markup=get_chat_menu())
+            await bot.send_message(user_id, f"🎉 Собеседник найден!\nПол: {p2.get('gender')}, {p2.get('age')} лет\nИнтерес: {p2.get('interests')}", reply_markup=get_chat_menu())
+            await bot.send_message(partner_id, f"🎉 Собеседник найден!\nПол: {p1.get('gender')}, {p1.get('age')} лет\nИнтерес: {p1.get('interests')}", reply_markup=get_chat_menu())
         except:
             pass
     else:
