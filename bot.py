@@ -95,7 +95,6 @@ async def premium_info(message: types.Message):
         parse_mode="Markdown"
     )
 
-# Оплата через Telegram Stars
 @dp.callback_query(F.data.startswith("buy_"))
 async def process_buy_tariff(callback: types.CallbackQuery):
     tariffs = {
@@ -149,7 +148,7 @@ async def admin_give_premium(message: types.Message):
     
     parts = message.text.split()
     if len(parts) < 2:
-        await message.reply("⚠️ Укажи ID пользователя. Пример: `/prem 123456789`", parse_mode="Markdown")
+        await message.reply("⚠️ Укажи ID пользователя. Пример: `/prem 6681923689`", parse_mode="Markdown")
         return
     
     try:
@@ -159,13 +158,13 @@ async def admin_give_premium(message: types.Message):
         else:
             user_profiles[target_id]["is_premium"] = True
             
-        await message.reply(f"✅ Премиум успешно выдан пользователю `{target_id}` бесплатно!", parse_mode="Markdown")
+        await message.reply(f"✅ Премиум успешно выдан пользователю `{target_id}`!", parse_mode="Markdown")
         try:
             await bot.send_message(target_id, "🎉 Администратор активировал тебе **PREMIUM-статус** бесплатно! ✨", parse_mode="Markdown", reply_markup=get_main_menu())
         except:
             pass
     except Exception as e:
-        await message.reply(f"⚠️ Ошибка: {e}")
+        await message.reply(f"⚠️ Ошибка: используй цифровой ID (например, `/prem 6681923689`). Детали: {e}")
 
 # ================= АНКЕТА И ИНТЕРЕСЫ =================
 
@@ -453,7 +452,6 @@ async def stop_chat(message: types.Message):
     else:
         await message.answer("Ты не находишься в диалоге.", reply_markup=get_main_menu())
 
-# Пересылка сообщений в активном чате
 @dp.message()
 async def forward_messages(message: types.Message):
     user_id = message.from_user.id
