@@ -32,8 +32,7 @@ def get_main_menu():
         keyboard=[
             [KeyboardButton(text="🔍 Начать поиск собеседника")],
             [KeyboardButton(text="📄 Посмотреть мою анкету"), KeyboardButton(text="✏️ Заполнить анкету заново")],
-            [KeyboardButton(text="💎 PREMIUM"), KeyboardButton(text="💬 Поддержка")],
-            [KeyboardButton(text="📢 Наш канал")]
+            [KeyboardButton(text="💎 PREMIUM"), KeyboardButton(text="💬 Поддержка")]
         ],
         resize_keyboard=True
     )
@@ -66,12 +65,7 @@ async def cmd_start(message: types.Message, state: FSMContext):
         reply_markup=get_main_menu()
     )
 
-# 2. Наш канал
-@dp.message(F.text == "📢 Наш канал")
-async def channel_link(message: types.Message):
-    await message.answer("📢 Наш официальный канал: https://t.me/anonimnyichat_ru_bot", reply_markup=get_main_menu())
-
-# 3. PREMIUM меню
+# 2. PREMIUM меню
 @dp.message(F.text == "💎 PREMIUM")
 async def premium_info(message: types.Message):
     user_id = message.from_user.id
