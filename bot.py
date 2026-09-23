@@ -3,11 +3,12 @@ import logging
 from aiogram import Bot, Dispatcher, types, F
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
-from aiogram.types import ReplyKeyboardMarkup, KeyboardButton, InlineKeyboardMarkup, InlineKeyboardButton
+from aiogram.types import ReplyKeyboardMarkup, KeyboardButton, InlineKeyboardMarkup, InlineKeyboardButton, LabeledPrice
 
 # ================= НАСТРОЙКИ =================
-TOKEN = "8861156320:AAEd_G2uA0GfNEifOzawEnLAFFFTov-1FHA"  # Твой токен
-ADMIN_ID = 6681923689                                   # Твой Telegram ID
+TOKEN = "8861156320:AAEd_G2uA0GfNEifOzawEnLAFFFTov-1FHA"  # Твой токен бота
+ADMIN_ID = 6681923689                                   # Твой Telegram ID (доступ к бесплатной выдаче и поддержке)
+PREMIUM_PRICE_STARS = 100                               # Стоимость премиума в Telegram Stars
 # ============================================
 
 logging.basicConfig(level=logging.INFO)
@@ -74,7 +75,7 @@ async def cmd_start(message: types.Message, state: FSMContext):
 async def channel_link(message: types.Message):
     await message.answer("📢 Наш официальный канал: https://t.me/твой_канал", reply_markup=get_main_menu())
 
-# 3. Кнопка "💎 PREMIUM"
+# 3. Кнопка "💎 PREMIUM" (покупка за Звезды)
 @dp.message(F.text == "💎 PREMIUM")
 async def premium_info(message: types.Message):
     user_id = message.from_user.id
@@ -84,7 +85,7 @@ async def premium_info(message: types.Message):
 
     markup = InlineKeyboardMarkup(
         inline_keyboard=[
-            [InlineKeyboardButton(text="⭐ Активировать тестовый Премиум", callback_data="activate_prem")]
+            [InlineKeyboardButton(text=f"⭐ Купить за {PREMIUM_PRICE_STARS} Звезд", callback_data="buy_prem_stars")]
         ]
     )
 
@@ -93,22 +94,71 @@ async def premium_info(message: types.Message):
         f"{status_text}\n\n"
         "Что дает Премиум:\n"
         "• 🚀 **Приоритетный поиск** (тебя соединяют первыми)\n"
-        "• 🎯 **Фильтр по полу** (автоматический подбор по твоей анкете)\n"
+        "• 🎯 **Фильтр по полу** (выбор, кого именно искать при поиске)\n"
         "• ✨ **Уникальный значок** в профиле\n\n"
-        "🎁 *Нажми кнопку ниже, чтобы получить премиум бесплатно!*",
+        "⭐️ *Нажми кнопку ниже, чтобы приобрести Премиум за Telegram Stars:*",
         reply_markup=markup
     )
 
-@dp.callback_query(F.data == "activate_prem")
-async def process_activate_prem(callback: types.CallbackQuery):
-    user_id = callback.from_user.id
+# Обработка нажатия на покупку за звезды (выставление счета)
+@dp.callback_query(F.data == "buy_prem_stars")
+async def process_buy_stars(callback: types.CallbackQuery):
+    prices = [LabeledPrice(label="💎 Telegram Premium", amount=PREMIUM_PRICE_STARS)]
+    
+    await bot.send_invoice(
+        chat_id=callback.from_user.id,
+        title="💎 Премиум-статус в боте",
+        description="Покупка Premium-статуса: приоритетный поиск, фильтр по полу и значок в профиле.",
+        payload="premium_stars_purchase",
+        currency="XTR",  # Валюта Telegram Stars
+        prices=prices
+    )
+    await callback.answer()
+
+# Подтверждение инвойса
+@dp.pre_checkout_query()
+async def process_pre_checkout_query(pre_checkout_query: types.PreCheckoutQuery):
+    await bot.answer_pre_checkout_query(pre_checkout_query.id, ok=True)
+
+# Успешная оплата звездами
+@dp.message(F.successful_payment)
+async def successful_payment(message: types.Message):
+    user_id = message.from_user.id
     if user_id not in user_profiles:
-        user_profiles[user_id] = {"gender": "Не указан", "target": "Всех", "age": "Не указан", "bio": "Пусто", "is_premium": True}
+        user_profiles[user_id] = {"gender": "👤 Парень", "target": "🌍 Всех", "age": "18", "bio": "Пусто", "is_premium": True}
     else:
         user_profiles[user_id]["is_premium"] = True
+        
+    await message.answer(
+        "🎉 **Успешная оплата!**\nТебе автоматически активирован **PREMIUM-статус** ✨",
+        reply_markup=get_main_menu()
+    )
+
+# 4. Команда бесплатной выдачи премиума (доступна только тебе по ADMIN_ID): /prem ID
+@dp.message(F.text.startswith("/prem"))
+async def admin_give_premium(message: types.Message):
+    if message.from_user.id != ADMIN_ID:
+        return
     
-    await callback.message.answer("🎉 Поздравляем! Премиум-статус успешно активирован для твоего аккаунта!")
-    await callback.answer()
+    parts = message.text.split()
+    if len(parts) < 2:
+        await message.reply("⚠️ Укажи ID пользователя. Пример: `/prem 123456789`", parse_mode="Markdown")
+        return
+    
+    try:
+        target_id = int(parts[1])
+        if target_id not in user_profiles:
+            user_profiles[target_id] = {"gender": "👤 Парень", "target": "🌍 Всех", "age": "18", "bio": "Пусто", "is_premium": True}
+        else:
+            user_profiles[target_id]["is_premium"] = True
+            
+        await message.reply(f"✅ Премиум успешно выдан пользователю `{target_id}` бесплатно!", parse_mode="Markdown")
+        try:
+            await bot.send_message(target_id, "🎉 Администратор активировал тебе **PREMIUM-статус** бесплатно! ✨", parse_mode="Markdown", reply_markup=get_main_menu())
+        except:
+            pass
+    except Exception as e:
+        await message.reply(f"⚠️ Ошибка: {e}")
 
 # ================= РАЗДЕЛ АНКЕТ И ВОЗРАСТА =================
 
@@ -122,26 +172,40 @@ async def start_filling_profile(message: types.Message, state: FSMContext):
         ],
         resize_keyboard=True
     )
-    await message.answer("📝 Шаг 1/4: Укажи свой пол:", reply_markup=markup)
+    user_id = message.from_user.id
+    is_prem = user_profiles.get(user_id, {}).get("is_premium", False)
+    
+    if is_prem:
+        await message.answer("📝 Шаг 1/4: Укажи свой пол:", reply_markup=markup)
+    else:
+        await message.answer("📝 Шаг 1/3: Укажи свой пол:", reply_markup=markup)
 
 @dp.message(F.text == "❌ Отмена")
 async def cancel_profile(message: types.Message, state: FSMContext):
     await state.clear()
-    await message.answer("❌ Заполнение анкеты отменено.", reply_markup=get_main_menu())
+    await message.answer("❌ Действие отменено.", reply_markup=get_main_menu())
 
 @dp.message(States.profile_gender, F.text.in_(["👤 Парень", "👧 Девушка"]))
 async def profile_gender_chosen(message: types.Message, state: FSMContext):
     await state.update_data(gender=message.text)
-    await state.set_state(States.profile_target)
-    markup = ReplyKeyboardMarkup(
-        keyboard=[
-            [KeyboardButton(text="🔎 Парня"), KeyboardButton(text="🔎 Девушку")],
-            [KeyboardButton(text="🌍 Всех")],
-            [KeyboardButton(text="❌ Отмена")]
-        ],
-        resize_keyboard=True
-    )
-    await message.answer("📝 Шаг 2/4: Кого ты хочешь искать?", reply_markup=markup)
+    user_id = message.from_user.id
+    is_prem = user_profiles.get(user_id, {}).get("is_premium", False)
+
+    if is_prem:
+        await state.set_state(States.profile_target)
+        markup = ReplyKeyboardMarkup(
+            keyboard=[
+                [KeyboardButton(text="🔎 Парня"), KeyboardButton(text="🔎 Девушку")],
+                [KeyboardButton(text="🌍 Всех")],
+                [KeyboardButton(text="❌ Отмена")]
+            ],
+            resize_keyboard=True
+        )
+        await message.answer("📝 Шаг 2/4: Кого ты хочешь искать?", reply_markup=markup)
+    else:
+        await state.update_data(target="🌍 Всех")
+        await state.set_state(States.profile_age)
+        await message.answer("📝 Шаг 2/3: Сколько тебе лет? (напиши цифрой)", reply_markup=ReplyKeyboardMarkup(keyboard=[[KeyboardButton(text="❌ Отмена")]], resize_keyboard=True))
 
 @dp.message(States.profile_target, F.text.in_(["🔎 Парня", "🔎 Девушку", "🌍 Всех"]))
 async def profile_target_chosen(message: types.Message, state: FSMContext):
@@ -153,7 +217,10 @@ async def profile_target_chosen(message: types.Message, state: FSMContext):
 async def profile_age_chosen(message: types.Message, state: FSMContext):
     await state.update_data(age=message.text)
     await state.set_state(States.profile_bio)
-    await message.answer("📝 Шаг 4/4: Напиши пару слов о себе (описание, хобби):", reply_markup=ReplyKeyboardMarkup(keyboard=[[KeyboardButton(text="❌ Отмена")]], resize_keyboard=True))
+    user_id = message.from_user.id
+    is_prem = user_profiles.get(user_id, {}).get("is_premium", False)
+    step_num = "4/4" if is_prem else "3/3"
+    await message.answer(f"📝 Шаг {step_num}: Напиши пару слов о себе (описание, хобби):", reply_markup=ReplyKeyboardMarkup(keyboard=[[KeyboardButton(text="❌ Отмена")]], resize_keyboard=True))
 
 @dp.message(States.profile_bio)
 async def profile_bio_chosen(message: types.Message, state: FSMContext):
@@ -164,17 +231,20 @@ async def profile_bio_chosen(message: types.Message, state: FSMContext):
     
     user_profiles[user_id] = {
         "gender": data["gender"],
-        "target": data["target"],
+        "target": data.get("target", "🌍 Всех"),
         "age": data["age"],
         "bio": message.text,
         "is_premium": is_prem
     }
     
     await state.clear()
+    
+    target_info = f"\n🎯 Кого ищет: {data.get('target')}" if is_prem else ""
+    
     await message.answer(
         "✅ Анкета успешно заполнена и сохранена!\n\n"
-        f"👤 Пол: {data['gender']}\n"
-        f"🎯 Кого ищет: {data['target']}\n"
+        f"👤 Пол: {data['gender']}"
+        f"{target_info}\n"
         f"🎂 Возраст: {data['age']}\n"
         f"📄 Описание: {message.text}",
         reply_markup=get_main_menu()
@@ -186,10 +256,11 @@ async def view_profile(message: types.Message):
     if user_id in user_profiles:
         p = user_profiles[user_id]
         prem_badge = " ✨ [PREMIUM]" if p.get("is_premium") else ""
+        target_info = f"\n🎯 Кого ищет: {p['target']}" if p.get("is_premium") else ""
         await message.answer(
             f"📄 **Твоя анкета{prem_badge}:**\n\n"
-            f"👤 Пол: {p['gender']}\n"
-            f"🎯 Кого ищет: {p['target']}\n"
+            f"👤 Пол: {p['gender']}"
+            f"{target_info}\n"
             f"🎂 Возраст: {p['age']}\n"
             f"📄 Описание: {p['bio']}",
             reply_markup=get_main_menu()
@@ -249,9 +320,9 @@ async def admin_reply_to_user(message: types.Message):
                         await message.reply("✅ Ответ отправлен!")
                         return
             except Exception as e:
-                await message.reply(f"⚠️ Ошибка: {e}")
+                await message.reply(f"⚠️ Ошибка при отправке: {e}")
 
-# ================= УМНЫЙ ПОИСК С УЧЕТОМ ПОЛА И ПРЕМИУМА =================
+# ================= ПОИСК СОБЕСЕДНИКА =================
 
 @dp.message(F.text == "🔍 Начать поиск собеседника")
 async def start_search(message: types.Message, state: FSMContext):
@@ -265,11 +336,34 @@ async def start_search(message: types.Message, state: FSMContext):
         return
 
     if user_id not in user_profiles:
-        await message.answer("⚠️ Сначала заполни анкету, чтобы бот знал твои предпочтения!", reply_markup=get_main_menu())
+        await message.answer("⚠️ Сначала заполни анкету!", reply_markup=get_main_menu())
         return
 
     user_data = user_profiles[user_id]
     is_prem = user_data.get("is_premium", False)
+
+    # 1. ОБЫЧНЫЙ ПОЛЬЗОВАТЕЛЬ — случайный поиск
+    if not is_prem:
+        search_queue.append(user_id)
+        
+        if len(search_queue) >= 2:
+            search_queue.remove(user_id)
+            partner_id = search_queue.pop(0)
+            
+            active_chats[user_id] = partner_id
+            active_chats[partner_id] = user_id
+
+            p1 = user_profiles.get(user_id, {})
+            p2 = user_profiles.get(partner_id, {})
+
+            await bot.send_message(user_id, f"🎉 Собеседник найден!\nПол: {p2.get('gender')}, {p2.get('age')} лет\nОписание: {p2.get('bio')}", reply_markup=get_chat_menu())
+            await bot.send_message(partner_id, f"🎉 Собеседник найден!\nПол: {p1.get('gender')}, {p1.get('age')} лет\nОписание: {p1.get('bio')}", reply_markup=get_chat_menu())
+            return
+
+        await message.answer("🔍 Ищем тебе случайного собеседника...", reply_markup=get_chat_menu())
+        return
+
+    # 2. ПРЕМИУМ-ПОЛЬЗОВАТЕЛЬ — поиск с фильтром по полу + приоритет
     target = user_data.get("target", "🌍 Всех")
     my_gender = user_data.get("gender", "👤 Парень")
 
@@ -302,28 +396,11 @@ async def start_search(message: types.Message, state: FSMContext):
         p1 = user_profiles.get(user_id, {})
         p2 = user_profiles.get(partner_id, {})
 
-        info_for_user = (
-            "🎉 Собеседник найден!\n\n"
-            f"👤 Пол: {p2.get('gender')}, {p2.get('age')} лет\n"
-            f"📄 Описание: {p2.get('bio')}\n\n"
-            "Можете общаться. Чтобы выйти, нажмите кнопку ниже."
-        )
-        info_for_partner = (
-            "🎉 Собеседник найден!\n\n"
-            f"👤 Пол: {p1.get('gender')}, {p1.get('age')} лет\n"
-            f"📄 Описание: {p1.get('bio')}\n\n"
-            "Можете общаться. Чтобы выйти, нажмите кнопку ниже."
-        )
-
-        await bot.send_message(user_id, info_for_user, reply_markup=get_chat_menu())
-        await bot.send_message(partner_id, info_for_partner, reply_markup=get_chat_menu())
+        await bot.send_message(user_id, f"🎉 Собеседник найден!\nПол: {p2.get('gender')}, {p2.get('age')} лет\nОписание: {p2.get('bio')}", reply_markup=get_chat_menu())
+        await bot.send_message(partner_id, f"🎉 Собеседник найден!\nПол: {p1.get('gender')}, {p1.get('age')} лет\nОписание: {p1.get('bio')}", reply_markup=get_chat_menu())
     else:
-        if is_prem:
-            premium_queue.append(user_id)
-            await message.answer("💎 **[PREMIUM]** Приоритетный поиск запущен... Ищем подходящего собеседника.", reply_markup=get_chat_menu())
-        else:
-            search_queue.append(user_id)
-            await message.answer("🔍 Ищем тебе собеседника...", reply_markup=get_chat_menu())
+        premium_queue.append(user_id)
+        await message.answer("💎 **[PREMIUM]** Поиск с фильтром по полу запущен...", reply_markup=get_chat_menu())
 
 @dp.message(F.text == "🛑 Остановить диалог")
 async def stop_chat(message: types.Message):
