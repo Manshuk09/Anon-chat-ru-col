@@ -50,7 +50,7 @@ def get_chat_menu():
         resize_keyboard=True
     )
 
-# 1. Команда /start
+# 1. Команда /start (чистая, без проверки подписок)
 @dp.message(F.text == "/start")
 async def cmd_start(message: types.Message, state: FSMContext):
     await state.clear()
@@ -75,7 +75,7 @@ async def cmd_start(message: types.Message, state: FSMContext):
 async def channel_link(message: types.Message):
     await message.answer("📢 Наш официальный канал: https://t.me/anonimnyichat_ru_bot", reply_markup=get_main_menu())
 
-# 3. Кнопка "💎 PREMIUM" с прайс-листом (на час, день, неделю, месяц, год, навсегда)
+# 3. Кнопка "💎 PREMIUM" с полным прайс-листом
 @dp.message(F.text == "💎 PREMIUM")
 async def premium_info(message: types.Message):
     user_id = message.from_user.id
@@ -149,7 +149,6 @@ async def successful_payment(message: types.Message):
         parse_mode="Markdown"
     )
 
-# Команда бесплатной выдачи премиума: /prem ID
 @dp.message(F.text.startswith("/prem"))
 async def admin_give_premium(message: types.Message):
     if message.from_user.id != ADMIN_ID:
@@ -231,7 +230,6 @@ async def profile_age_chosen(message: types.Message, state: FSMContext):
     await state.update_data(age=message.text)
     await state.set_state(States.profile_interests)
     
-    # Твои интересы: рисование, сериалы, книга, аниме, спорт, танцы, музыка, программирование и т.д.
     markup = ReplyKeyboardMarkup(
         keyboard=[
             [KeyboardButton(text="🎨 Рисование"), KeyboardButton(text="🎬 Сериалы")],
