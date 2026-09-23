@@ -6,21 +6,19 @@ from aiogram.fsm.state import State, StatesGroup
 from aiogram.types import ReplyKeyboardMarkup, KeyboardButton, InlineKeyboardMarkup, InlineKeyboardButton, LabeledPrice
 
 # ================= НАСТРОЙКИ =================
-TOKEN = "8861156320:AAEd_G2uA0GfNEifOzawEnLAFFFTov-1FHA"  # Твой токен бота
-ADMIN_ID = 6681923689                                   # Твой Telegram ID
+TOKEN = "8861156320:AAEd_G2uA0GfNEifOzawEnLAFFFTov-1FHA"
+ADMIN_ID = 6681923689
 # ============================================
 
 logging.basicConfig(level=logging.INFO)
 bot = Bot(token=TOKEN)
 dp = Dispatcher()
 
-# Хранилища
 search_queue = []          
 premium_queue = []         
 active_chats = {}          
 user_profiles = {}         
 
-# Состояния (FSM)
 class States(StatesGroup):
     waiting_for_support = State()
     profile_gender = State()
@@ -29,7 +27,6 @@ class States(StatesGroup):
     profile_interests = State()
     profile_bio = State()
 
-# Главное меню
 def get_main_menu():
     return ReplyKeyboardMarkup(
         keyboard=[
@@ -41,7 +38,6 @@ def get_main_menu():
         resize_keyboard=True
     )
 
-# Меню во время активного диалога
 def get_chat_menu():
     return ReplyKeyboardMarkup(
         keyboard=[
@@ -50,7 +46,6 @@ def get_chat_menu():
         resize_keyboard=True
     )
 
-# 1. Команда /start (чистая, без проверки подписок)
 @dp.message(F.text == "/start")
 async def cmd_start(message: types.Message, state: FSMContext):
     await state.clear()
@@ -70,12 +65,10 @@ async def cmd_start(message: types.Message, state: FSMContext):
         reply_markup=get_main_menu()
     )
 
-# 2. Кнопка "📢 Наш канал"
 @dp.message(F.text == "📢 Наш канал")
 async def channel_link(message: types.Message):
     await message.answer("📢 Наш официальный канал: https://t.me/anonimnyichat_ru_bot", reply_markup=get_main_menu())
 
-# 3. Кнопка "💎 PREMIUM" с полным прайс-листом
 @dp.message(F.text == "💎 PREMIUM")
 async def premium_info(message: types.Message):
     user_id = message.from_user.id
@@ -106,7 +99,6 @@ async def premium_info(message: types.Message):
         parse_mode="Markdown"
     )
 
-# Обработка выбора тарифов через Telegram Stars
 @dp.callback_query(F.data.startswith("buy_"))
 async def process_buy_tariff(callback: types.CallbackQuery):
     tariffs = {
@@ -173,8 +165,6 @@ async def admin_give_premium(message: types.Message):
             pass
     except Exception as e:
         await message.reply(f"⚠️ Ошибка: {e}")
-
-# ================= РАЗДЕЛ АНКЕТ И ИНТЕРЕСОВ =================
 
 @dp.message(F.text == "✏️ Заполнить анкету заново")
 async def start_filling_profile(message: types.Message, state: FSMContext):
@@ -306,8 +296,6 @@ async def view_profile(message: types.Message):
             reply_markup=get_main_menu()
         )
 
-# ================= РАЗДЕЛ ПОДДЕРЖКИ =================
-
 @dp.message(F.text == "💬 Поддержка")
 async def support_start(message: types.Message, state: FSMContext):
     await state.set_state(States.waiting_for_support)
@@ -357,8 +345,6 @@ async def admin_reply_to_user(message: types.Message):
                         return
             except Exception as e:
                 await message.reply(f"⚠️ Ошибка при отправке: {e}")
-
-# ================= ПОИСК СОБЕСЕДНИКА =================
 
 @dp.message(F.text == "🔍 Начать поиск собеседника")
 async def start_search(message: types.Message, state: FSMContext):
@@ -474,7 +460,7 @@ async def forward_messages(message: types.Message, state: FSMContext):
 
 async def main():
     print("Бот запущен и готов к работе!")
-    await dp.start_polling(bot)
+    await dp.start_polling(bot, drop_pending_updates=True)
 
 if __name__ == '__main__':
     asyncio.run(main())
