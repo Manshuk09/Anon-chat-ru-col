@@ -262,7 +262,7 @@ async def channel_info(message: types.Message):
     await message.answer(
         "📢 **Наш официальный Telegram-канал:**\n\n"
         "Здесь будут публиковаться новости, обновления и анонсы бота!\n\n"
-        "👉 Подписывайся: https://t.me/A_ToolsX",
+        "👉 Подписывайся: https://t.me/anonimnyichat_ru_channel",
         reply_markup=get_main_menu()
     )
 
