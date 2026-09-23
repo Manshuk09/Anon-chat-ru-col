@@ -49,6 +49,9 @@ class ProfileState(StatesGroup):
     waiting_for_interests = State()
     waiting_for_complaint = State()
 
+class SupportState(StatesGroup):
+    waiting_for_message = State()
+
 def get_main_menu():
     return ReplyKeyboardMarkup(
         keyboard=[
@@ -241,13 +244,33 @@ async def channel_info(message: types.Message):
         reply_markup=get_main_menu()
     )
 
+# Поддержка через бота (без показа личного аккаунта)
 @dp.message(F.text == "💬 Поддержка")
-async def support_handler(message: types.Message):
+async def support_handler(message: types.Message, state: FSMContext):
     await message.answer(
         "💬 Возникли вопросы или проблемы?\n\n"
-        "Напиши администратору: @starlightopq", 
-        parse_mode="Markdown"
+        "Напиши свой вопрос или проблему следующим сообщением, и оно будет отправлено администратору:"
     )
+    await state.set_state(SupportState.waiting_for_message)
+
+@dp.message(SupportState.waiting_for_message)
+async def send_support_message(message: types.Message, state: FSMContext):
+    user_id = message.from_user.id
+    username = f"@{message.from_user.username}" if message.from_user.username else f"id: {user_id}"
+
+    support_text = (
+        f"💬 **Новое обращение в поддержку!**\n\n"
+        f"👤 От кого: {username} (`{user_id}`)\n"
+        f"📄 Текст: {message.text}"
+    )
+    
+    try:
+        await bot.send_message(ADMIN_ID, support_text)
+    except Exception:
+        pass
+
+    await message.answer("✅ Твое сообщение успешно отправлено администратору!", reply_markup=get_main_menu())
+    await state.clear()
 
 @dp.message(F.text == "✏️ Заполнить анкету заново")
 @dp.message(F.text == "/edit")
