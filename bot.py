@@ -15,7 +15,7 @@ from aiogram.types import (
 )
 
 TOKEN = "8861156320:AAEd_G2uA0GfNEifOzawEnLAFFFTov-1FHA"
-ADMIN_ID = 123456789  # ⚠️ Замени на свой числовой Telegram ID
+ADMIN_ID = 123456789  # ⚠️ Замени на свой числовой Telegram ID (или ID канала для жалоб)
 
 logging.basicConfig(level=logging.INFO)
 bot = Bot(token=TOKEN)
@@ -92,7 +92,7 @@ async def show_my_profile(message: types.Message):
     user_id = message.from_user.id
     conn = sqlite3.connect("users_db.db")
     cursor = conn.cursor()
-    cursor.execute("SELECT gender, age, interests, reputation, is_premium FROM users WHERE user_id = ?", (user_id,))
+    cursor.execute("SELECT gender, age, interests, reputation, is_premium, premium_expires FROM users WHERE user_id = ?", (user_id,))
     row = cursor.fetchone()
     conn.close()
 
@@ -100,7 +100,17 @@ async def show_my_profile(message: types.Message):
         await message.answer("⚠️ У тебя еще нет анкеты. Нажми /start, чтобы создать ее.")
         return
 
-    gender, age, interests, reputation, is_premium = row
+    gender, age, interests, reputation, is_premium, premium_expires = row
+    
+    # Проверка актуальности премиума по времени
+    if is_premium and premium_expires > 0 and time.time() > premium_expires:
+        conn = sqlite3.connect("users_db.db")
+        cursor = conn.cursor()
+        cursor.execute("UPDATE users SET is_premium = 0, premium_expires = 0 WHERE user_id = ?", (user_id,))
+        conn.commit()
+        conn.close()
+        is_premium = 0
+
     status_text = "💎 Активен" if is_premium else "❌ Обычный"
     
     await message.answer(
@@ -121,10 +131,14 @@ async def show_premium_menu(message: types.Message):
         "👫 Поиск по полу\n"
         "👥 Видишь пол и возраст собеседника\n"
         "💎 Твой PREMIUM-статус виден всем\n"
-        "⚡ Быстрый поиск и никакой рекламы"
+        "⚡ Быстрый поиск и никакой рекламы\n\n"
+        "Выбери подходящий тариф:"
     )
     markup = InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="💳 Купить PREMIUM (1 месяц) — 150 ⭐", callback_data="buy_stars_1month")],
+        [InlineKeyboardButton(text="⏳ 1 день — 15 ⭐", callback_data="buy_stars_1day")],
+        [InlineKeyboardButton(text="📅 1 неделя — 50 ⭐", callback_data="buy_stars_1week")],
+        [InlineKeyboardButton(text="🗓 1 месяц — 150 ⭐", callback_data="buy_stars_1month")],
+        [InlineKeyboardButton(text="♾ Навсегда — 400 ⭐", callback_data="buy_stars_lifetime")],
         [InlineKeyboardButton(text="⬅️ Назад в меню", callback_data="main_menu_callback")]
     ])
     await message.answer(text, reply_markup=markup)
@@ -135,15 +149,34 @@ async def back_to_menu_cb(callback: types.CallbackQuery):
     await callback.message.answer("Главное меню:", reply_markup=get_main_menu())
     await callback.answer()
 
-@dp.callback_query(F.data == "buy_stars_1month")
+@dp.callback_query(F.data.startswith("buy_stars_"))
 async def process_buy_stars(callback: types.CallbackQuery, bot: Bot):
-    prices = [LabeledPrice(label="PREMIUM на 1 месяц", amount=150)]
+    tariff = callback.data.replace("buy_stars_", "")
     
+    if tariff == "1day":
+        prices = [LabeledPrice(label="PREMIUM на 1 день", amount=15)]
+        title = "PREMIUM (1 день)"
+        description = "Доступ к премиум-функциям на 24 часа."
+    elif tariff == "1week":
+        prices = [LabeledPrice(label="PREMIUM на 1 неделю", amount=50)]
+        title = "PREMIUM (1 неделя)"
+        description = "Доступ к премиум-функциям на 7 дней."
+    elif tariff == "1month":
+        prices = [LabeledPrice(label="PREMIUM на 1 месяц", amount=150)]
+        title = "PREMIUM (1 месяц)"
+        description = "Доступ к премиум-функциям на 30 дней."
+    elif tariff == "lifetime":
+        prices = [LabeledPrice(label="PREMIUM Навсегда", amount=400)]
+        title = "PREMIUM (Навсегда)"
+        description = "Пожизненный доступ ко всем премиум-функциям бота."
+    else:
+        return
+
     await bot.send_invoice(
         chat_id=callback.message.chat.id,
-        title="PREMIUM подписка",
-        description="Доступ ко всем премиум-функциям бота на 1 месяц без ограничений.",
-        payload="premium_1_month",
+        title=title,
+        description=description,
+        payload=f"premium_{tariff}",
         provider_token="",  # Для Telegram Stars всегда пусто
         currency="XTR",     # Валюта Telegram Stars
         prices=prices,
@@ -158,8 +191,25 @@ async def process_pre_checkout_query(pre_checkout_query: PreCheckoutQuery, bot: 
 async def process_successful_payment(message: types.Message):
     payment_info = message.successful_payment
     user_id = message.from_user.id
+    payload = payment_info.invoice_payload
     
-    expires_at = time.time() + (30 * 24 * 60 * 60) # 30 дней
+    current_time = time.time()
+    
+    if "1day" in payload:
+        expires_at = current_time + (1 * 24 * 60 * 60)
+        tariff_name = "1 день"
+    elif "1week" in payload:
+        expires_at = current_time + (7 * 24 * 60 * 60)
+        tariff_name = "1 неделя"
+    elif "1month" in payload:
+        expires_at = current_time + (30 * 24 * 60 * 60)
+        tariff_name = "1 месяц"
+    elif "lifetime" in payload:
+        expires_at = current_time + (365 * 100 * 24 * 60 * 60) # Навсегда
+        tariff_name = "Навсегда"
+    else:
+        expires_at = current_time + (30 * 24 * 60 * 60)
+        tariff_name = "1 месяц"
     
     conn = sqlite3.connect("users_db.db")
     cursor = conn.cursor()
@@ -171,8 +221,9 @@ async def process_successful_payment(message: types.Message):
 
     await message.answer(
         "🎉 **Оплата прошла успешно!**\n\n"
+        f"Тариф: {tariff_name}\n"
         f"Списано: {payment_info.total_amount} ⭐\n"
-        "Твой статус **💎 PREMIUM** активирован на 1 месяц. Приятного общения!",
+        "Твой статус **💎 PREMIUM** активирован. Приятного общения!",
         reply_markup=get_main_menu()
     )
 
@@ -308,7 +359,7 @@ async def start_search(message: types.Message):
     conn = sqlite3.connect("users_db.db")
     cursor = conn.cursor()
     
-    cursor.execute("SELECT status, gender, age, interests, is_premium FROM users WHERE user_id = ?", (user_id,))
+    cursor.execute("SELECT status, gender, age, interests, is_premium, premium_expires FROM users WHERE user_id = ?", (user_id,))
     row = cursor.fetchone()
     if not row:
         conn.close()
@@ -320,7 +371,12 @@ async def start_search(message: types.Message):
         await message.answer("⚠️ Ты уже общаешься с кем-то! Сначала заверши текущий диалог.")
         return
 
-    my_gender, my_age, my_interests, my_is_premium = row[1], row[2], row[3], row[4]
+    my_status, my_gender, my_age, my_interests, my_is_premium, my_expires = row[0], row[1], row[2], row[3], row[4], row[5]
+
+    if my_is_premium and my_expires > 0 and current_time > my_expires:
+        cursor.execute("UPDATE users SET is_premium = 0, premium_expires = 0 WHERE user_id = ?", (user_id,))
+        conn.commit()
+        my_is_premium = 0
 
     cursor.execute("SELECT user_id, gender, age, interests, reputation, is_premium FROM users WHERE status = 'searching' AND user_id != ? LIMIT 1", (user_id,))
     partner = cursor.fetchone()
