@@ -5,10 +5,17 @@ import time
 from aiogram import Bot, Dispatcher, types, F
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
-from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton, ReplyKeyboardMarkup, KeyboardButton
+from aiogram.types import (
+    InlineKeyboardMarkup, 
+    InlineKeyboardButton, 
+    ReplyKeyboardMarkup, 
+    KeyboardButton,
+    LabeledPrice,
+    PreCheckoutQuery
+)
 
 TOKEN = "8861156320:AAEd_G2uA0GfNEifOzawEnLAFFFTov-1FHA"
-ADMIN_ID = 123456789  # ⚠️ ЗАМЕНИ НА СВОЙ ЧИСЛОВОЙ TELEGRAM ID (например, через @userinfobot)
+ADMIN_ID = 123456789  # ⚠️ Замени на свой числовой Telegram ID
 
 logging.basicConfig(level=logging.INFO)
 bot = Bot(token=TOKEN)
@@ -26,7 +33,9 @@ def init_db():
             status TEXT DEFAULT 'idle',
             partner_id INTEGER DEFAULT 0,
             reputation INTEGER DEFAULT 0,
-            chat_start_time REAL DEFAULT 0
+            chat_start_time REAL DEFAULT 0,
+            is_premium INTEGER DEFAULT 0,
+            premium_expires REAL DEFAULT 0
         )
     """)
     conn.commit()
@@ -52,7 +61,7 @@ def get_main_menu():
         keyboard=[
             [KeyboardButton(text="🔍 Начать поиск собеседника")],
             [KeyboardButton(text="📄 Посмотреть мою анкету"), KeyboardButton(text="✏️ Заполнить анкету заново")],
-            [KeyboardButton(text="📢 Наш Telegram-канал")]
+            [KeyboardButton(text="💎 PREMIUM"), KeyboardButton(text="📢 Наш Telegram-канал")]
         ],
         resize_keyboard=True
     )
@@ -83,7 +92,7 @@ async def show_my_profile(message: types.Message):
     user_id = message.from_user.id
     conn = sqlite3.connect("users_db.db")
     cursor = conn.cursor()
-    cursor.execute("SELECT gender, age, interests, reputation FROM users WHERE user_id = ?", (user_id,))
+    cursor.execute("SELECT gender, age, interests, reputation, is_premium FROM users WHERE user_id = ?", (user_id,))
     row = cursor.fetchone()
     conn.close()
 
@@ -91,13 +100,79 @@ async def show_my_profile(message: types.Message):
         await message.answer("⚠️ У тебя еще нет анкеты. Нажми /start, чтобы создать ее.")
         return
 
-    gender, age, interests, reputation = row
+    gender, age, interests, reputation, is_premium = row
+    status_text = "💎 Активен" if is_premium else "❌ Обычный"
+    
     await message.answer(
         f"📄 **Твоя анкета:**\n\n"
         f"👤 Пол: {gender}\n"
         f"🎂 Возраст: {age}\n"
         f"✨ Интересы: {interests}\n"
-        f"⭐ Репутация: {reputation}",
+        f"⭐ Репутация: {reputation}\n"
+        f"💎 Статус: {status_text}",
+        reply_markup=get_main_menu()
+    )
+
+@dp.message(F.text == "💎 PREMIUM")
+@dp.message(F.text == "/premium")
+async def show_premium_menu(message: types.Message):
+    text = (
+        "Общайся с 💎 PREMIUM без ограничений!\n\n"
+        "👫 Поиск по полу\n"
+        "👥 Видишь пол и возраст собеседника\n"
+        "💎 Твой PREMIUM-статус виден всем\n"
+        "⚡ Быстрый поиск и никакой рекламы"
+    )
+    markup = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="💳 Купить PREMIUM (1 месяц) — 150 ⭐", callback_data="buy_stars_1month")],
+        [InlineKeyboardButton(text="⬅️ Назад в меню", callback_data="main_menu_callback")]
+    ])
+    await message.answer(text, reply_markup=markup)
+
+@dp.callback_query(F.data == "main_menu_callback")
+async def back_to_menu_cb(callback: types.CallbackQuery):
+    await callback.message.delete()
+    await callback.message.answer("Главное меню:", reply_markup=get_main_menu())
+    await callback.answer()
+
+@dp.callback_query(F.data == "buy_stars_1month")
+async def process_buy_stars(callback: types.CallbackQuery, bot: Bot):
+    prices = [LabeledPrice(label="PREMIUM на 1 месяц", amount=150)]
+    
+    await bot.send_invoice(
+        chat_id=callback.message.chat.id,
+        title="PREMIUM подписка",
+        description="Доступ ко всем премиум-функциям бота на 1 месяц без ограничений.",
+        payload="premium_1_month",
+        provider_token="",  # Для Telegram Stars всегда пусто
+        currency="XTR",     # Валюта Telegram Stars
+        prices=prices,
+    )
+    await callback.answer()
+
+@dp.pre_checkout_query()
+async def process_pre_checkout_query(pre_checkout_query: PreCheckoutQuery, bot: Bot):
+    await bot.answer_pre_checkout_query(pre_checkout_query.id, ok=True)
+
+@dp.message(F.successful_payment)
+async def process_successful_payment(message: types.Message):
+    payment_info = message.successful_payment
+    user_id = message.from_user.id
+    
+    expires_at = time.time() + (30 * 24 * 60 * 60) # 30 дней
+    
+    conn = sqlite3.connect("users_db.db")
+    cursor = conn.cursor()
+    cursor.execute("""
+        UPDATE users SET is_premium = 1, premium_expires = ? WHERE user_id = ?
+    """, (expires_at, user_id))
+    conn.commit()
+    conn.close()
+
+    await message.answer(
+        "🎉 **Оплата прошла успешно!**\n\n"
+        f"Списано: {payment_info.total_amount} ⭐\n"
+        "Твой статус **💎 PREMIUM** активирован на 1 месяц. Приятного общения!",
         reply_markup=get_main_menu()
     )
 
@@ -233,7 +308,7 @@ async def start_search(message: types.Message):
     conn = sqlite3.connect("users_db.db")
     cursor = conn.cursor()
     
-    cursor.execute("SELECT status, gender, age, interests FROM users WHERE user_id = ?", (user_id,))
+    cursor.execute("SELECT status, gender, age, interests, is_premium FROM users WHERE user_id = ?", (user_id,))
     row = cursor.fetchone()
     if not row:
         conn.close()
@@ -245,9 +320,9 @@ async def start_search(message: types.Message):
         await message.answer("⚠️ Ты уже общаешься с кем-то! Сначала заверши текущий диалог.")
         return
 
-    my_gender, my_age, my_interests = row[1], row[2], row[3]
+    my_gender, my_age, my_interests, my_is_premium = row[1], row[2], row[3], row[4]
 
-    cursor.execute("SELECT user_id, gender, age, interests, reputation FROM users WHERE status = 'searching' AND user_id != ? LIMIT 1", (user_id,))
+    cursor.execute("SELECT user_id, gender, age, interests, reputation, is_premium FROM users WHERE status = 'searching' AND user_id != ? LIMIT 1", (user_id,))
     partner = cursor.fetchone()
 
     stop_menu = ReplyKeyboardMarkup(
@@ -256,7 +331,7 @@ async def start_search(message: types.Message):
     )
 
     if partner:
-        partner_id, p_gender, p_age, p_interests, p_rep = partner[0], partner[1], partner[2], partner[3], partner[4]
+        partner_id, p_gender, p_age, p_interests, p_rep, p_is_premium = partner[0], partner[1], partner[2], partner[3], partner[4], partner[5]
         
         cursor.execute("UPDATE users SET status = 'chatting', partner_id = ?, chat_start_time = ? WHERE user_id = ?", (partner_id, current_time, user_id))
         cursor.execute("UPDATE users SET status = 'chatting', partner_id = ?, chat_start_time = ? WHERE user_id = ?", (user_id, current_time, partner_id))
@@ -271,8 +346,11 @@ async def start_search(message: types.Message):
             resize_keyboard=True
         )
 
+        my_badge = " 💎 PREMIUM" if my_is_premium else ""
+        p_badge = " 💎 PREMIUM" if p_is_premium else ""
+
         await message.answer(
-            f"🎉 Собеседник найден!\n\n"
+            f"🎉 Собеседник найден!{p_badge}\n\n"
             f"👤 Пол: {p_gender}\n"
             f"🎂 Возраст: {p_age}\n"
             f"✨ Интересы: {p_interests}\n"
@@ -283,7 +361,7 @@ async def start_search(message: types.Message):
         
         await bot.send_message(
             partner_id,
-            f"🎉 Собеседник найден!\n\n"
+            f"🎉 Собеседник найден!{my_badge}\n\n"
             f"👤 Пол: {my_gender}\n"
             f"🎂 Возраст: {my_age}\n"
             f"✨ Интересы: {my_interests}\n"
@@ -432,7 +510,7 @@ async def process_complaint_send(message: types.Message, state: FSMContext):
         conn.close()
 
     complaint_text = (
-        f"🚨 **Новая жалоба на пользователя!** (Админ: @starligtopq)\n\n"
+        f"🚨 **Новая жалоба на пользователя!**\n\n"
         f"👤 От кого: {reporter_username} (`{reporter_id}`)\n"
         f"🎯 Нарушитель (ID): `{target_user_id}`\n"
         f"📄 Причина: {message.text}"
@@ -457,6 +535,7 @@ async def pass_messages(message: types.Message):
         "🔗 Оставить ссылку на профиль", 
         "✏️ Заполнить анкету заново",
         "📄 Посмотреть мою анкету",
+        "💎 PREMIUM",
         "📢 Наш Telegram-канал"
     ]
     
@@ -477,6 +556,7 @@ async def pass_messages(message: types.Message):
             await message.answer("⚠️ Не удалось отправить сообщение собеседнику.")
 
 async def main():
+    print("Бот запущен и готов к работе!")
     await dp.start_polling(bot)
 
 if __name__ == '__main__':
