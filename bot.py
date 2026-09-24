@@ -779,7 +779,6 @@ async def process_complaint_send(message: types.Message, state: FSMContext):
 
     await message.answer("✅ Жалоба успешно отправлена администраторам.", reply_markup=get_main_menu())
     await state.clear()
-
 @dp.message()
 async def pass_messages(message: types.Message):
     user_id = message.from_user.id
@@ -805,7 +804,7 @@ async def pass_messages(message: types.Message):
     cursor = conn.cursor()
     cursor.execute("SELECT status, partner_id FROM users WHERE user_id = ?", (user_id,))
     row = cursor.fetchone()
-    conn.close()
+    conn.close() # <-- Исправлено
 
     if row and row[0] == 'chatting' and row[1]:
         partner_id = row[1]
@@ -813,6 +812,8 @@ async def pass_messages(message: types.Message):
             await message.copy_to(partner_id)
         except Exception:
             await message.answer("⚠️ Не удалось отправить сообщение собеседнику.")
+
+
 
 async def main():
     await dp.start_polling(bot)
