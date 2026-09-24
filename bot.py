@@ -244,7 +244,6 @@ async def channel_info(message: types.Message):
         reply_markup=get_main_menu()
     )
 
-# Поддержка через бота (без показа личного аккаунта)
 @dp.message(F.text == "💬 Поддержка")
 async def support_handler(message: types.Message, state: FSMContext):
     await message.answer(
@@ -588,7 +587,6 @@ async def stop_search(message: types.Message):
     conn.close()
     await message.answer("❌ Поиск отменен.", reply_markup=get_main_menu())
 
-# Функционал подарков
 @dp.message(F.text == "🎁 Подарить подарок")
 async def choose_gift(message: types.Message):
     user_id = message.from_user.id
@@ -779,6 +777,7 @@ async def process_complaint_send(message: types.Message, state: FSMContext):
 
     await message.answer("✅ Жалоба успешно отправлена администраторам.", reply_markup=get_main_menu())
     await state.clear()
+
 @dp.message()
 async def pass_messages(message: types.Message):
     user_id = message.from_user.id
@@ -804,16 +803,19 @@ async def pass_messages(message: types.Message):
     cursor = conn.cursor()
     cursor.execute("SELECT status, partner_id FROM users WHERE user_id = ?", (user_id,))
     row = cursor.fetchone()
-    conn.close() # <-- Исправлено
+    conn.close()
 
     if row and row[0] == 'chatting' and row[1]:
         partner_id = row[1]
         try:
+            # Защита от спам-рассылок со сторонними ботами (блокируем подозрительные ссылки на ботов с ref)
+            if message.text and ("xaitool" in message.text or "start=ref" in message.text):
+                await message.answer("⚠️ Ваше сообщение не отправлено, так как содержит запрещенную ссылку.")
+                return
+            
             await message.copy_to(partner_id)
         except Exception:
             await message.answer("⚠️ Не удалось отправить сообщение собеседнику.")
-
-
 
 async def main():
     await dp.start_polling(bot)
