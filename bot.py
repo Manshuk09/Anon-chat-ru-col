@@ -7,7 +7,7 @@ from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton, ReplyKeyboardMarkup, KeyboardButton, LabeledPrice
 
-TOKEN = "8861156320:AAGIXgxVx53hhj7UxIX8SFiMoNhJAdl_GeU"
+TOKEN = "8934594855:AAGOKofRKqQb1oGvq0qEDqV9AjoWtkfbo3M"
 ADMIN_ID = 6681923689
 
 logging.basicConfig(level=logging.INFO)
