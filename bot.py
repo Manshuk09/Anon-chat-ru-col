@@ -407,7 +407,7 @@ async def stop_search(message: types.Message):
     await message.answer("❌ Поиск отменен.", reply_markup=get_main_menu())
 
 @dp.message(F.text == "🎁 Отправить подарок (Telegram)")
-async def send_telegram_gift(message: types.Message):
+async def choose_telegram_gift(message: types.Message):
     conn = sqlite3.connect("users_db.db")
     cursor = conn.cursor()
     cursor.execute("SELECT partner_id FROM users WHERE user_id = ?", (message.from_user.id,))
@@ -418,13 +418,35 @@ async def send_telegram_gift(message: types.Message):
         await message.answer("⚠️ Ты не находишься в чате с собеседником.")
         return
 
+    markup = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="🎁 Звездный подарок 1 (⭐ 15)", callback_data="send_tg_gift_1")],
+        [InlineKeyboardButton(text="🎁 Звездный подарок 2 (⭐ 25)", callback_data="send_tg_gift_2")]
+    ])
+    await message.answer("🎁 Выбери подарок для отправки собеседнику через Telegram:", reply_markup=markup)
+
+@dp.callback_query(F.data.startswith("send_tg_gift_"))
+async def process_send_tg_gift(callback: types.CallbackQuery):
+    gift_id = callback.data.replace("send_tg_gift_", "")
+    
+    conn = sqlite3.connect("users_db.db")
+    cursor = conn.cursor()
+    cursor.execute("SELECT partner_id FROM users WHERE user_id = ?", (callback.from_user.id,))
+    row = cursor.fetchone()
+    conn.close()
+
+    if not row or not row[0]:
+        await callback.answer("⚠️ Собеседник уже вышел из чата.", show_alert=True)
+        return
+
     partner_id = row[0]
     try:
-        # Используем официальный метод отправки Telegram Gift (требует доступные подарки у бота в Telegram Stars)
-        await bot.send_gift(user_id=partner_id, gift_id="1") # ID подарка настраивается под доступные в вашем боте
-        await message.answer("🎁 Настоящий Telegram-подарок успешно отправлен собеседнику!")
-    except Exception as e:
-        await message.answer(f"⚠️ Не удалось отправить подарок: {e}")
+        await bot.send_gift(user_id=partner_id, gift_id=gift_id)
+        await callback.message.edit_text("🎁 Настоящий Telegram-подарок успешно отправлен собеседнику!")
+        await bot.send_message(partner_id, "🎁 Тебе пришел подарок от собеседника в Telegram!")
+    except Exception:
+        await callback.message.edit_text("⚠️ Не удалось отправить подарок.\nВозможно, у бота недостаточно Stars или подарок недоступен.")
+    
+    await callback.answer()
 
 @dp.message(F.text == "🔗 Оставить ссылку на профиль")
 async def share_profile(message: types.Message):
@@ -456,11 +478,9 @@ async def stop_chat(message: types.Message):
     
     partner_id = row[0] if row else 0
 
-    # Сбрасываем статусы обоим
     if partner_id:
         cursor.execute("UPDATE users SET status = 'idle', partner_id = 0, chat_start_time = 0 WHERE user_id = ?", (partner_id,))
         
-        # Клавиатура оценки для партнера
         rate_markup_partner = InlineKeyboardMarkup(inline_keyboard=[
             [
                 InlineKeyboardButton(text="👍 Хорошо", callback_data=f"rate_up_{user_id}"),
@@ -474,7 +494,6 @@ async def stop_chat(message: types.Message):
     conn.commit()
     conn.close()
 
-    # Клавиатура оценки для себя
     rate_markup_self = InlineKeyboardMarkup(inline_keyboard=[
         [
             InlineKeyboardButton(text="👍 Хорошо", callback_data=f"rate_up_{partner_id}"),
@@ -488,7 +507,7 @@ async def stop_chat(message: types.Message):
 @dp.callback_query(F.data.startswith("rate_"))
 async def process_rating(callback: types.CallbackQuery):
     data_parts = callback.data.split("_")
-    action = data_parts[1] # up или down
+    action = data_parts[1]
     target_id = int(data_parts[2])
 
     if target_id:
@@ -545,3 +564,4 @@ async def main():
 
 if __name__ == '__main__':
     asyncio.run(main())
+ 
