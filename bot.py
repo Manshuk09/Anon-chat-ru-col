@@ -67,7 +67,7 @@ def get_main_menu():
 def get_chat_control_menu():
     return ReplyKeyboardMarkup(
         keyboard=[
-            [KeyboardButton(text="🎁 Подарить подарок")],
+            [KeyboardButton(text="🎁 Отправить подарок (Telegram)")],
             [KeyboardButton(text="🔗 Оставить ссылку на профиль")],
             [KeyboardButton(text="❌ Завершить диалог")]
         ],
@@ -406,26 +406,25 @@ async def stop_search(message: types.Message):
     conn.close()
     await message.answer("❌ Поиск отменен.", reply_markup=get_main_menu())
 
-@dp.message(F.text == "🎁 Подарить подарок")
-async def choose_gift(message: types.Message):
-    markup = InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="🌹 Роза (⭐ 5)", callback_data="gift_rose"), InlineKeyboardButton(text="🍫 Шоколад (⭐ 10)", callback_data="gift_choco")]
-    ])
-    await message.answer("🎁 Выбери подарок:", reply_markup=markup)
-
-@dp.callback_query(F.data.startswith("gift_"))
-async def process_gift(callback: types.CallbackQuery):
+@dp.message(F.text == "🎁 Отправить подарок (Telegram)")
+async def send_telegram_gift(message: types.Message):
     conn = sqlite3.connect("users_db.db")
     cursor = conn.cursor()
-    cursor.execute("SELECT partner_id FROM users WHERE user_id = ?", (callback.from_user.id,))
+    cursor.execute("SELECT partner_id FROM users WHERE user_id = ?", (message.from_user.id,))
     row = cursor.fetchone()
-    if row and row[0]:
-        cursor.execute("UPDATE users SET reputation = reputation + 1 WHERE user_id = ?", (row[0],))
-        conn.commit()
-        await bot.send_message(row[0], "🎁 Тебе прилетел подарок!")
     conn.close()
-    await callback.message.edit_text("Подарок отправлен!")
-    await callback.answer()
+
+    if not row or not row[0]:
+        await message.answer("⚠️ Ты не находишься в чате с собеседником.")
+        return
+
+    partner_id = row[0]
+    try:
+        # Используем официальный метод отправки Telegram Gift (требует доступные подарки у бота в Telegram Stars)
+        await bot.send_gift(user_id=partner_id, gift_id="1") # ID подарка настраивается под доступные в вашем боте
+        await message.answer("🎁 Настоящий Telegram-подарок успешно отправлен собеседнику!")
+    except Exception as e:
+        await message.answer(f"⚠️ Не удалось отправить подарок: {e}")
 
 @dp.message(F.text == "🔗 Оставить ссылку на профиль")
 async def share_profile(message: types.Message):
@@ -449,21 +448,84 @@ async def share_profile(message: types.Message):
 
 @dp.message(F.text == "❌ Завершить диалог")
 async def stop_chat(message: types.Message):
+    user_id = message.from_user.id
     conn = sqlite3.connect("users_db.db")
     cursor = conn.cursor()
-    cursor.execute("SELECT partner_id FROM users WHERE user_id = ?", (message.from_user.id,))
+    cursor.execute("SELECT partner_id FROM users WHERE user_id = ?", (user_id,))
     row = cursor.fetchone()
-    if row and row[0]:
-        cursor.execute("UPDATE users SET status = 'idle', partner_id = 0, chat_start_time = 0 WHERE user_id = ?", (row[0],))
-        await bot.send_message(row[0], "😢 Собеседник завершил диалог.", reply_markup=get_main_menu())
-    cursor.execute("UPDATE users SET status = 'idle', partner_id = 0, chat_start_time = 0 WHERE user_id = ?", (message.from_user.id,))
+    
+    partner_id = row[0] if row else 0
+
+    # Сбрасываем статусы обоим
+    if partner_id:
+        cursor.execute("UPDATE users SET status = 'idle', partner_id = 0, chat_start_time = 0 WHERE user_id = ?", (partner_id,))
+        
+        # Клавиатура оценки для партнера
+        rate_markup_partner = InlineKeyboardMarkup(inline_keyboard=[
+            [
+                InlineKeyboardButton(text="👍 Хорошо", callback_data=f"rate_up_{user_id}"),
+                InlineKeyboardButton(text="👎 Плохо", callback_data=f"rate_down_{user_id}")
+            ],
+            [InlineKeyboardButton(text="🚨 Пожаловаться", callback_data=f"complaint_{user_id}")]
+        ])
+        await bot.send_message(partner_id, "😢 Собеседник завершил диалог. Оцени его:", reply_markup=rate_markup_partner)
+
+    cursor.execute("UPDATE users SET status = 'idle', partner_id = 0, chat_start_time = 0 WHERE user_id = ?", (user_id,))
     conn.commit()
     conn.close()
-    await message.answer("❌ Диалог завершен.", reply_markup=get_main_menu())
+
+    # Клавиатура оценки для себя
+    rate_markup_self = InlineKeyboardMarkup(inline_keyboard=[
+        [
+            InlineKeyboardButton(text="👍 Хорошо", callback_data=f"rate_up_{partner_id}"),
+            InlineKeyboardButton(text="👎 Плохо", callback_data=f"rate_down_{partner_id}")
+        ],
+        [InlineKeyboardButton(text="🚨 Пожаловаться", callback_data=f"complaint_{partner_id}")] if partner_id else []
+    ])
+    await message.answer("❌ Диалог завершен. Оцени собеседника:", reply_markup=rate_markup_self)
+    await message.answer("Главное меню:", reply_markup=get_main_menu())
+
+@dp.callback_query(F.data.startswith("rate_"))
+async def process_rating(callback: types.CallbackQuery):
+    data_parts = callback.data.split("_")
+    action = data_parts[1] # up или down
+    target_id = int(data_parts[2])
+
+    if target_id:
+        conn = sqlite3.connect("users_db.db")
+        cursor = conn.cursor()
+        points = 1 if action == "up" else -1
+        cursor.execute("UPDATE users SET reputation = reputation + ? WHERE user_id = ?", (points, target_id))
+        conn.commit()
+        conn.close()
+
+    await callback.message.edit_text("Спасибо за твою оценку!")
+    await callback.answer()
+
+@dp.callback_query(F.data.startswith("complaint_"))
+async def process_complaint_start(callback: types.CallbackQuery, state: FSMContext):
+    target_id = callback.data.replace("complaint_", "")
+    await state.update_data(complaint_target=target_id)
+    await callback.message.answer("⚠️ Напиши причину жалобы следующим сообщением:")
+    await state.set_state(ProfileState.waiting_for_complaint)
+    await callback.answer()
+
+@dp.message(ProfileState.waiting_for_complaint)
+async def process_complaint_finish(message: types.Message, state: FSMContext):
+    data = await state.get_data()
+    target_id = data.get("complaint_target")
+    
+    try:
+        await bot.send_message(ADMIN_ID, f"🚨 **Жалоба на пользователя** `{target_id}` от `{message.from_user.id}`:\n{message.text}")
+    except Exception:
+        pass
+
+    await message.answer("✅ Жалоба отправлена администратору. Спасибо!", reply_markup=get_main_menu())
+    await state.clear()
 
 @dp.message()
 async def pass_messages(message: types.Message):
-    if message.text in ["🔍 Начать поиск собеседника", "🎯 Поиск по полу (Премиум)", "🛑 Остановить поиск", "❌ Завершить диалог", "🔗 Оставить ссылку на профиль", "🎁 Подарить подарок", "✏️ Заполнить анкету заново", "📄 Посмотреть мою анкету", "💎 Премиум-статус", "📢 Наш Telegram-канал", "💬 Поддержка"]:
+    if message.text in ["🔍 Начать поиск собеседника", "🎯 Поиск по полу (Премиум)", "🛑 Остановить поиск", "❌ Завершить диалог", "🔗 Оставить ссылку на профиль", "🎁 Отправить подарок (Telegram)", "✏️ Заполнить анкету заново", "📄 Посмотреть мою анкету", "💎 Премиум-статус", "📢 Наш Telegram-канал", "💬 Поддержка"]:
         return
     
     conn = sqlite3.connect("users_db.db")
