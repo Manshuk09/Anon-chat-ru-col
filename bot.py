@@ -294,25 +294,39 @@ async def process_interest_toggle(callback: types.CallbackQuery, state: FSMConte
 async def process_interests_done(callback: types.CallbackQuery, state: FSMContext):
     data = await state.get_data()
     user_id = callback.from_user.id
-    gender, age, interests = data.get("gender"), data.get("age"), ", ".join(data.get("selected_interests", []))
+    gender = data.get("gender")
+    age = data.get("age")
+    selected_interests = data.get("selected_interests", [])
     
-    if not interests:
+    if not selected_interests:
         await callback.answer("⚠️ Выбери хотя бы один интерес!", show_alert=True)
         return
+
+    interests = ", ".join(selected_interests)
 
     conn = sqlite3.connect("users_db.db")
     cursor = conn.cursor()
     cursor.execute("""
         INSERT INTO users (user_id, gender, age, interests, status, partner_id, reputation, chat_start_time)
         VALUES (?, ?, ?, ?, 'idle', 0, 0, 0)
-        ON CONFLICT(user_id) DO UPDATE SET gender=excluded.gender, age=excluded.age, interests=excluded.interests, status='idle'
+        ON CONFLICT(user_id) DO UPDATE SET 
+            gender = excluded.gender, 
+            age = excluded.age, 
+            interests = excluded.interests, 
+            status = 'idle'
     """, (user_id, gender, age, interests))
     conn.commit()
     conn.close()
 
-    await callback.message.delete()
-    await callback.message.answer("🎉 Анкета сохранена! Всё готово к общению:", reply_markup=get_main_menu())
     await state.clear()
+
+    try:
+        await callback.message.edit_text("🎉 Анкета успешно сохранена! Всё готово к общению:")
+    except Exception:
+        pass
+        
+    await callback.message.answer("Главное меню:", reply_markup=get_main_menu())
+    await callback.answer()
 
 @dp.message(F.text == "🎯 Поиск по полу (Премиум)")
 async def gender_search_menu(message: types.Message):
