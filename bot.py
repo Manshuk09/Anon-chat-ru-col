@@ -563,6 +563,8 @@ async def process_complaint_finish(message: types.Message, state: FSMContext):
 
 @dp.message()
 async def pass_messages(message: types.Message):
+
+async def pass_messages(message: types.Message):
     if message.text in ["🔍 Начать поиск собеседника", "🎯 Поиск по полу (Премиум)", "🛑 Остановить поиск", "❌ Завершить диалог", "🔗 Оставить ссылку на профиль", "🎁 Отправить подарок (Telegram)", "✏️ Заполнить анкету заново", "📄 Посмотреть мою анкету", "💎 Премиум-статус", "📢 Наш Telegram-канал", "💬 Поддержка"]:
         return
     
