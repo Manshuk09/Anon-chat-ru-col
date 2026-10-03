@@ -7,7 +7,7 @@ from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton, ReplyKeyboardMarkup, KeyboardButton, LabeledPrice
 
-TOKEN = "8934594855:AAGOKofRKqQb1oGvq0qEDqV9AjoWtkfbo3M"
+TOKEN = "ТВОЙ_АКТУАЛЬНЫЙ_ТОКЕН"
 ADMIN_ID = 6681923689
 
 logging.basicConfig(level=logging.INFO)
@@ -92,7 +92,7 @@ async def cmd_start(message: types.Message, state: FSMContext):
             InlineKeyboardButton(text="🙋‍♀️ Девушка", callback_data="gender_female")
         ]
     ])
-    await message.answer("👋 Привет! Создадим твою анкету.\n\nУкажи свой пол:", reply_markup=markup)
+    await message.answer("👋 Привет! Этот бот предназначен только для пользователей 18+.\n\nСоздадим твою анкету. Укажи свой пол:", reply_markup=markup)
     await state.set_state(ProfileState.waiting_for_gender)
 
 @dp.message(F.text == "📄 Посмотреть мою анкету")
@@ -115,7 +115,7 @@ async def show_my_profile(message: types.Message):
         prem_status = "💎 Активен"
 
     await message.answer(
-        f"📄 **Твоя анкета:**\n\n👤 Пол: {gender}\n🎂 Возраст: {age}\n✨ Интересы: {interests}\n⭐ Репутация: {reputation}\n💎 Премиум: {prem_status}",
+        f"📄 **Твоя анкета (18+):**\n\n👤 Пол: {gender}\n🎂 Возраст: {age}\n✨ Интересы: {interests}\n⭐ Репутация: {reputation}\n💎 Премиум: {prem_status}",
         reply_markup=get_main_menu()
     )
 
@@ -123,12 +123,17 @@ async def show_my_profile(message: types.Message):
 @dp.message(F.text == "/premium")
 async def premium_info(message: types.Message):
     text = (
-        "💎 **Премиум-статус в Анонимном чате**\n\n"
+        "💎 **Премиум-статус в Анонимном чате (18+)**\n\n"
         "Что дает Премиум:\n"
         "✨ **Поиск собеседника по полу**\n"
-        "✨ Приоритет при поиске\n"
-        "✨ Отправка ссылок без ожидания таймера\n"
-        "✨ Эксклюзивный значок в профиле\n\n"
+        "🚀 **VIP-очередь** (соединение быстрее в 3 раза)\n"
+        "👑 **Корона и значок** в профиле и начале чата\n"
+        "⏳ **Отправка ссылок без ожидания** таймера (можно сразу)\n"
+        "🔄 **Возврат собеседника** при случайном сбросе\n"
+        "🎯 **Расширенные интересы** (до 10 вместо 5)\n"
+        "🔮 **Фильтр по возрасту** (выбор точного диапазона 18+)\n"
+        "🎙 **Безлимитные голосовые и кружочки** с первой секунды\n"
+        "📊 **Личная статистика** просмотров и лайков анкеты\n\n"
         "🏷 **Прайс-лист (Telegram Stars):**\n"
         "⭐ **1 час** — 10 Stars\n"
         "⭐ **1 день** — 30 Stars\n"
@@ -254,7 +259,7 @@ async def process_gender(callback: types.CallbackQuery, state: FSMContext):
 @dp.message(ProfileState.waiting_for_age)
 async def process_age(message: types.Message, state: FSMContext):
     if not message.text.isdigit() or not (18 <= int(message.text) <= 99):
-        await message.answer("⚠️ Введи корректный возраст от 18 лет:")
+        await message.answer("⚠️ Бот строго 18+. Введи корректный возраст от 18 лет:")
         return
     await state.update_data(age=int(message.text))
     await state.set_state(ProfileState.waiting_for_interests)
