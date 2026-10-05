@@ -91,13 +91,19 @@ def get_chat_control_menu():
 @dp.message(F.text == "/start")
 async def cmd_start(message: types.Message, state: FSMContext):
     user_id = message.from_user.id
+    current_time = time.time()
+    
     conn = sqlite3.connect("users_db.db")
     cursor = conn.cursor()
     cursor.execute("SELECT * FROM users WHERE user_id = ?", (user_id,))
     user = cursor.fetchone()
+    
+    if not user:
+        cursor.execute("INSERT OR IGNORE INTO users (user_id, status, registration_time) VALUES (?, 'idle', ?)", (user_id, current_time))
+        conn.commit()
     conn.close()
 
-    if user:
+    if user and user[1]: # если пол уже заполнен
         await message.answer("Ты уже зарегистрирована! Нажми кнопку ниже, чтобы начать общение:", reply_markup=get_main_menu(user_id))
         return
 
@@ -119,8 +125,8 @@ async def show_my_profile(message: types.Message):
     row = cursor.fetchone()
     conn.close()
 
-    if not row:
-        await message.answer("⚠️ У тебя еще нет анкеты. Нажми /start, чтобы создать ее.")
+    if not row or not row[0]:
+        await message.answer("⚠️ У тебя еще нет заполненной анкеты. Нажми /start, чтобы создать ее.")
         return
 
     gender, age, interests, reputation, is_premium, premium_expires = row
@@ -337,14 +343,9 @@ async def process_interests_done(callback: types.CallbackQuery, state: FSMContex
     reg_time = row[0] if row and row[0] > 0 else current_time
 
     cursor.execute("""
-        INSERT INTO users (user_id, gender, age, interests, status, partner_id, reputation, chat_start_time, registration_time)
-        VALUES (?, ?, ?, ?, 'idle', 0, 0, 0, ?)
-        ON CONFLICT(user_id) DO UPDATE SET 
-            gender = excluded.gender, 
-            age = excluded.age, 
-            interests = excluded.interests, 
-            status = 'idle'
-    """, (user_id, gender, age, interests, reg_time))
+        UPDATE users SET gender = ?, age = ?, interests = ?, status = 'idle', registration_time = ?
+        WHERE user_id = ?
+    """, (gender, age, interests, reg_time, user_id))
     conn.commit()
     conn.close()
 
@@ -393,7 +394,7 @@ async def process_general_search(message: types.Message, target_gender=None):
     cursor.execute("SELECT status, gender, age, interests, reputation FROM users WHERE user_id = ?", (user_id,))
     row = cursor.fetchone()
     
-    if not row:
+    if not row or not row[1]:
         conn.close()
         await message.answer("Сначала заполни анкету через /start")
         return
@@ -627,7 +628,6 @@ async def process_complaint_finish(message: types.Message, state: FSMContext):
     await message.answer("✅ Жалоба отправлена администратору. Спасибо!", reply_markup=get_main_menu(message.from_user.id))
     await state.clear()
 
-# Команда для проверки статистики администратором
 @dp.message(F.text == "/stats")
 async def admin_stats(message: types.Message):
     if message.from_user.id != ADMIN_ID:
@@ -639,5 +639,52 @@ async def admin_stats(message: types.Message):
     cursor.execute("SELECT COUNT(*) FROM users")
     total_users = cursor.fetchone()[0]
     
-    cursor
- 
+    cursor.execute("SELECT COUNT(*) FROM users WHERE status = 'searching'")
+    searching_users = cursor.fetchone()[0]
+    
+    cursor.execute("SELECT COUNT(*) FROM users WHERE status = 'chatting'")
+    chatting_users = cursor.fetchone()[0]
+    
+    current_time = time.time()
+    cursor.execute("SELECT COUNT(*) FROM users WHERE is_premium = 1 AND premium_expires > ?", (current_time,))
+    premium_users = cursor.fetchone()[0]
+    
+    day_ago = current_time - 86400
+    cursor.execute("SELECT COUNT(*) FROM users WHERE registration_time > ?", (day_ago,))
+    new_users_24h = cursor.fetchone()[0]
+    
+    conn.close()
+    
+    await message.answer(
+        f"📊 **Подробная статистика бота:**\n\n"
+        f"👥 **Всего зарегистрировано:** `{total_users}`\n"
+        f"🆕 **Новых за 24 часа:** `{new_users_24h}`\n"
+        f"⏳ **Ищут собеседника:** `{searching_users}`\n"
+        f"💬 **Общаются в чатах:** `{chatting_users}` (👥 `{chatting_users // 2}` пар)\n"
+        f"💎 **Активных Премиумов:** `{premium_users}`",
+        parse_mode="Markdown"
+    )
+
+@dp.message()
+async def pass_messages(message: types.Message):
+    if message.text in ["/stats", "🔍 Начать поиск собеседника", "🎯 Поиск по полу (Премиум)", "🔄 Вернуть собеседника", "🛑 Остановить поиск", "❌ Завершить диалог", "🔗 Оставить ссылку на профиль", "🎁 Отправить подарок (Telegram)", "✏️ Заполнить анкету заново", "📄 Посмотреть мою анкету", "💎 Премиум-статус", "💎 Премиум (Активен)", "📢 Наш канал", "💬 Поддержка"]:
+        return
+    
+    conn = sqlite3.connect("users_db.db")
+    cursor = conn.cursor()
+    cursor.execute("SELECT status, partner_id FROM users WHERE user_id = ?", (message.from_user.id,))
+    row = cursor.fetchone()
+    conn.close()
+
+    if row and row[0] == 'chatting' and row[1]:
+        try:
+            await message.copy_to(row[1])
+        except Exception:
+            await message.answer("⚠️ Не удалось доставить сообщение.")
+
+async def main():
+    await bot.delete_webhook(drop_pending_updates=True)
+    await dp.start_polling(bot)
+
+if __name__ == '__main__':
+    asyncio.run(main())
