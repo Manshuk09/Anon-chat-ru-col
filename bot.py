@@ -72,7 +72,8 @@ def get_main_menu(user_id: int):
             [KeyboardButton(text="🔍 Начать поиск собеседника")],
             [KeyboardButton(text="🎯 Поиск по полу (Премиум)"), KeyboardButton(text="🔄 Вернуть собеседника")],
             [KeyboardButton(text="📄 Посмотреть мою анкету"), KeyboardButton(text="✏️ Заполнить анкету заново")],
-            [KeyboardButton(text=prem_btn_text), KeyboardButton(text="💬 Поддержка")]
+            [KeyboardButton(text=prem_btn_text), KeyboardButton(text="📢 Наш Telegram-канал")],
+            [KeyboardButton(text="💬 Поддержка")]
         ],
         resize_keyboard=True
     )
@@ -90,19 +91,13 @@ def get_chat_control_menu():
 @dp.message(F.text == "/start")
 async def cmd_start(message: types.Message, state: FSMContext):
     user_id = message.from_user.id
-    current_time = time.time()
-    
     conn = sqlite3.connect("users_db.db")
     cursor = conn.cursor()
     cursor.execute("SELECT * FROM users WHERE user_id = ?", (user_id,))
     user = cursor.fetchone()
-    
-    if not user:
-        cursor.execute("INSERT OR IGNORE INTO users (user_id, status, registration_time) VALUES (?, 'idle', ?)", (user_id, current_time))
-        conn.commit()
     conn.close()
 
-    if user and user[1]:
+    if user:
         await message.answer("Ты уже зарегистрирована! Нажми кнопку ниже, чтобы начать общение:", reply_markup=get_main_menu(user_id))
         return
 
@@ -124,8 +119,8 @@ async def show_my_profile(message: types.Message):
     row = cursor.fetchone()
     conn.close()
 
-    if not row or not row[0]:
-        await message.answer("⚠️ У тебя еще нет заполненной анкеты. Нажми /start, чтобы создать ее.")
+    if not row:
+        await message.answer("⚠️ У тебя еще нет анкеты. Нажми /start, чтобы создать ее.")
         return
 
     gender, age, interests, reputation, is_premium, premium_expires = row
@@ -238,6 +233,10 @@ async def admin_give(message: types.Message):
     conn.close()
     await message.answer("💎 Премиум выдан навсегда админу!", reply_markup=get_main_menu(message.from_user.id))
 
+@dp.message(F.text == "📢 Наш Telegram-канал")
+async def channel_info(message: types.Message):
+    await message.answer("📢 Наш канал: https://t.me/anonimnyichat_ru_channel", reply_markup=get_main_menu(message.from_user.id))
+
 @dp.message(F.text == "💬 Поддержка")
 async def support_handler(message: types.Message, state: FSMContext):
     await message.answer("💬 Напиши вопрос админу следующим сообщением:")
@@ -338,9 +337,14 @@ async def process_interests_done(callback: types.CallbackQuery, state: FSMContex
     reg_time = row[0] if row and row[0] > 0 else current_time
 
     cursor.execute("""
-        UPDATE users SET gender = ?, age = ?, interests = ?, status = 'idle', registration_time = ?
-        WHERE user_id = ?
-    """, (gender, age, interests, reg_time, user_id))
+        INSERT INTO users (user_id, gender, age, interests, status, partner_id, reputation, chat_start_time, registration_time)
+        VALUES (?, ?, ?, ?, 'idle', 0, 0, 0, ?)
+        ON CONFLICT(user_id) DO UPDATE SET 
+            gender = excluded.gender, 
+            age = excluded.age, 
+            interests = excluded.interests, 
+            status = 'idle'
+    """, (user_id, gender, age, interests, reg_time))
     conn.commit()
     conn.close()
 
@@ -389,7 +393,7 @@ async def process_general_search(message: types.Message, target_gender=None):
     cursor.execute("SELECT status, gender, age, interests, reputation FROM users WHERE user_id = ?", (user_id,))
     row = cursor.fetchone()
     
-    if not row or not row[1]:
+    if not row:
         conn.close()
         await message.answer("Сначала заполни анкету через /start")
         return
@@ -651,18 +655,18 @@ async def admin_stats(message: types.Message):
     conn.close()
     
     await message.answer(
-        f"📊 **Подробная статистика бота:**\n\n"
-        f"👥 **Всего зарегистрировано:** `{total_users}`\n"
-        f"🆕 **Новых за 24 часа:** `{new_users_24h}`\n"
-        f"⏳ **Ищут собеседника:** `{searching_users}`\n"
-        f"💬 **Общаются в чатах:** `{chatting_users}` (👥 `{chatting_users // 2}` пар)\n"
-        f"💎 **Активных Премиумов:** `{premium_users}`",
+        f"📊 **Статистика бота:**\n\n"
+        f"👥 Всего зарегистрировано: `{total_users}`\n"
+        f"🆕 Новых за последние 24 часа: `{new_users_24h}`\n"
+        f"⏳ Ищут собеседника: `{searching_users}`\n"
+        f"💬 Общаются в чатах: `{chatting_users}`\n"
+        f"💎 Активных Премиумов: `{premium_users}`",
         parse_mode="Markdown"
     )
 
 @dp.message()
 async def pass_messages(message: types.Message):
-    if message.text in ["/stats", "🔍 Начать поиск собеседника", "🎯 Поиск по полу (Премиум)", "🔄 Вернуть собеседника", "🛑 Остановить поиск", "❌ Завершить диалог", "🔗 Оставить ссылку на профиль", "🎁 Отправить подарок (Telegram)", "✏️ Заполнить анкету заново", "📄 Посмотреть мою анкету", "💎 Премиум-статус", "💎 Премиум (Активен)", "💬 Поддержка"]:
+    if message.text in ["/stats", "🔍 Начать поиск собеседника", "🎯 Поиск по полу (Премиум)", "🔄 Вернуть собеседника", "🛑 Остановить поиск", "❌ Завершить диалог", "🔗 Оставить ссылку на профиль", "🎁 Отправить подарок (Telegram)", "✏️ Заполнить анкету заново", "📄 Посмотреть мою анкету", "💎 Премиум-статус", "💎 Премиум (Активен)", "📢 Наш Telegram-канал", "💬 Поддержка"]:
         return
     
     conn = sqlite3.connect("users_db.db")
@@ -678,7 +682,6 @@ async def pass_messages(message: types.Message):
             await message.answer("⚠️ Не удалось доставить сообщение.")
 
 async def main():
-    await bot.delete_webhook(drop_pending_updates=True)
     await dp.start_polling(bot)
 
 if __name__ == '__main__':
