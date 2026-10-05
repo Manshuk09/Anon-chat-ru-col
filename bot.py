@@ -72,8 +72,7 @@ def get_main_menu(user_id: int):
             [KeyboardButton(text="🔍 Начать поиск собеседника")],
             [KeyboardButton(text="🎯 Поиск по полу (Премиум)"), KeyboardButton(text="🔄 Вернуть собеседника")],
             [KeyboardButton(text="📄 Посмотреть мою анкету"), KeyboardButton(text="✏️ Заполнить анкету заново")],
-            [KeyboardButton(text=prem_btn_text), KeyboardButton(text="📢 Наш Telegram-канал")],
-            [KeyboardButton(text="💬 Поддержка")]
+            [KeyboardButton(text=prem_btn_text), KeyboardButton(text="💬 Поддержка")]
         ],
         resize_keyboard=True
     )
@@ -103,7 +102,7 @@ async def cmd_start(message: types.Message, state: FSMContext):
         conn.commit()
     conn.close()
 
-    if user and user[1]: # если пол уже заполнен
+    if user and user[1]:
         await message.answer("Ты уже зарегистрирована! Нажми кнопку ниже, чтобы начать общение:", reply_markup=get_main_menu(user_id))
         return
 
@@ -238,10 +237,6 @@ async def admin_give(message: types.Message):
     conn.commit()
     conn.close()
     await message.answer("💎 Премиум выдан навсегда админу!", reply_markup=get_main_menu(message.from_user.id))
-
-@dp.message(F.text == "📢 Наш Telegram-канал")
-async def channel_info(message: types.Message):
-    await message.answer("📢 Наш канал: https://t.me/anonimnyichat_ru_channel", reply_markup=get_main_menu(message.from_user.id))
 
 @dp.message(F.text == "💬 Поддержка")
 async def support_handler(message: types.Message, state: FSMContext):
@@ -667,7 +662,7 @@ async def admin_stats(message: types.Message):
 
 @dp.message()
 async def pass_messages(message: types.Message):
-    if message.text in ["/stats", "🔍 Начать поиск собеседника", "🎯 Поиск по полу (Премиум)", "🔄 Вернуть собеседника", "🛑 Остановить поиск", "❌ Завершить диалог", "🔗 Оставить ссылку на профиль", "🎁 Отправить подарок (Telegram)", "✏️ Заполнить анкету заново", "📄 Посмотреть мою анкету", "💎 Премиум-статус", "💎 Премиум (Активен)", "📢 Наш канал", "💬 Поддержка"]:
+    if message.text in ["/stats", "🔍 Начать поиск собеседника", "🎯 Поиск по полу (Премиум)", "🔄 Вернуть собеседника", "🛑 Остановить поиск", "❌ Завершить диалог", "🔗 Оставить ссылку на профиль", "🎁 Отправить подарок (Telegram)", "✏️ Заполнить анкету заново", "📄 Посмотреть мою анкету", "💎 Премиум-статус", "💎 Премиум (Активен)", "💬 Поддержка"]:
         return
     
     conn = sqlite3.connect("users_db.db")
