@@ -1319,25 +1319,46 @@ async def admin_stats(message: types.Message):
         parse_mode="Markdown"
     )
 
-@dp.message()
-async def pass_messages(message: types.Message):
-    if message.text in ["/stats", "🔍 Начать поиск собеседника", "🎯 Поиск по полу (Премиум)", "🔄 Вернуть собеседника", "🛑 Остановить поиск", "❌ Завершить диалог", "🔗 Оставить ссылку на профиль", "🎁 Отправить подарок (Telegram)", "✏️ Заполнить анкету заново", "📄 Посмотреть мою анкету", "💎 Премиум-статус", "💎 Премиум (Активен)", "📢 Наш канал", "💬 Поддержка"]:
+@dp.message(F.text == "/stats")
+async def admin_stats(message: types.Message):
+    if message.from_user.id != ADMIN_ID:
         return
-    
+        
     conn = sqlite3.connect("users_db.db")
     cursor = conn.cursor()
-    cursor.execute("SELECT status, partner_id FROM users WHERE user_id = ?", (message.from_user.id,))
-    row = cursor.fetchone()
+    
+    # 1. Общее количество пользователей
+    cursor.execute("SELECT COUNT(*) FROM users")
+    total_users = cursor.fetchone()[0]
+    
+    # 2. Ищут собеседника в данный момент
+    cursor.execute("SELECT COUNT(*) FROM users WHERE status = 'searching'")
+    searching_users = cursor.fetchone()[0]
+    
+    # 3. Общаются в активных чатах
+    cursor.execute("SELECT COUNT(*) FROM users WHERE status = 'chatting'")
+    chatting_users = cursor.fetchone()[0]
+    
+    # 4. Активные премиум-подписки (у которых срок еще не истек)
+    current_time = time.time()
+    cursor.execute("SELECT COUNT(*) FROM users WHERE is_premium = 1 AND premium_expires > ?", (current_time,))
+    premium_users = cursor.fetchone()[0]
+    
+    # 5. Новые пользователи за последние 24 часа
+    day_ago = current_time - 86400
+    cursor.execute("SELECT COUNT(*) FROM users WHERE registration_time > ?", (day_ago,))
+    new_users_24h = cursor.fetchone()[0]
+    
     conn.close()
+    
+    # Красивый вывод статистики
+    await message.answer(
+        f"📊 **Подробная статистика бота:**\n\n"
+        f"👥 **Всего зарегистрировано:** `{total_users}`\n"
+        f"🆕 **Новых за 24 часа:** `{new_users_24h}`\n"
+        f"⏳ **Ищут собеседника:** `{searching_users}`\n"
+        f"💬 **Общаются в чатах:** `{chatting_users}` (👥 `{chatting_users // 2}` пар)\n"
+        f"💎 **Активных Премиумов:** `{premium_users}`",
+        parse_mode="Markdown"
+    )
 
-    if row and row[0] == 'chatting' and row[1]:
-        try:
-            await message.copy_to(row[1])
-        except Exception:
-            await message.answer("⚠️ Не удалось доставить сообщение.")
-
-async def main():
-    await dp.start_polling(bot)
-
-if __name__ == '__main__':
-    asyncio.run(main())
