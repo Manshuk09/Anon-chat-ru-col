@@ -682,6 +682,7 @@ async def pass_messages(message: types.Message):
             await message.answer("⚠️ Не удалось доставить сообщение.")
 
 async def main():
+    await bot.delete_webhook(drop_pending_updates=True)
     await dp.start_polling(bot)
 
 if __name__ == '__main__':
